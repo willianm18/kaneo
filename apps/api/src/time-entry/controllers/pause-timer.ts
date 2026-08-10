@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import db from "../../database";
 import { timeEntryTable } from "../../database/schema";
+import getOwnedTimeEntry from "./get-owned-time-entry";
 
 async function pauseTimer({
   timeEntryId,
@@ -10,20 +11,7 @@ async function pauseTimer({
   timeEntryId: string;
   userId: string;
 }) {
-  const [entry] = await db
-    .select()
-    .from(timeEntryTable)
-    .where(
-      and(
-        eq(timeEntryTable.id, timeEntryId),
-        eq(timeEntryTable.userId, userId),
-      ),
-    )
-    .limit(1);
-
-  if (!entry) {
-    throw new HTTPException(404, { message: "Time entry not found" });
-  }
+  const entry = await getOwnedTimeEntry({ timeEntryId, userId });
 
   if (entry.endTime) {
     throw new HTTPException(409, {
@@ -35,8 +23,9 @@ async function pauseTimer({
     return entry;
   }
 
-  const elapsed = Math.floor(
-    (Date.now() - entry.runningSince.getTime()) / 1000,
+  const elapsed = Math.max(
+    0,
+    Math.floor((Date.now() - entry.runningSince.getTime()) / 1000),
   );
 
   const [paused] = await db

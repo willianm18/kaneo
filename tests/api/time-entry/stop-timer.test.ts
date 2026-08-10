@@ -58,6 +58,28 @@ describe("stopTimer", () => {
     expect(set.duration).toBeLessThanOrEqual(41);
   });
 
+  it("nao subtrai de duration quando runningSince esta no futuro", async () => {
+    const runningSince = new Date(Date.now() + 30_000);
+    mockSelect.mockReturnValue(
+      makeSelectMock([
+        {
+          id: "te-1",
+          userId: "user-1",
+          endTime: null,
+          duration: 10,
+          runningSince,
+        },
+      ]),
+    );
+    const updateChain = makeUpdateMock({ id: "te-1" });
+    mockUpdate.mockReturnValue(updateChain);
+
+    await stopTimer({ timeEntryId: "te-1", userId: "user-1" });
+
+    const set = updateChain.set.mock.calls[0][0] as Record<string, unknown>;
+    expect(set.duration).toBe(10);
+  });
+
   it("apenas grava endTime quando pausado, sem alterar duration", async () => {
     mockSelect.mockReturnValue(
       makeSelectMock([
