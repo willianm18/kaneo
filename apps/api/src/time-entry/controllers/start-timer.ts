@@ -39,6 +39,10 @@ async function startTimer({
       .where(eq(timeEntryTable.id, openEntry.id))
       .returning();
 
+    if (!resumed) {
+      throw new HTTPException(500, { message: "Failed to resume timer" });
+    }
+
     return resumed;
   }
 

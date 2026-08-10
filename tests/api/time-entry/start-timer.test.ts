@@ -94,6 +94,28 @@ describe("startTimer", () => {
     expect(set.startTime).toBeUndefined();
   });
 
+  it("lanca 500 quando o update de retomada nao retorna linha", async () => {
+    mockSelect.mockReturnValue(
+      makeSelectMock([
+        {
+          id: "te-1",
+          startTime: new Date("2026-08-10T09:00:00.000Z"),
+          endTime: null,
+          duration: 1800,
+          runningSince: null,
+        },
+      ]),
+    );
+    const returning = vi.fn(() => Promise.resolve([]));
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    mockUpdate.mockReturnValue({ set, where, returning });
+
+    await expect(
+      startTimer({ taskId: "task-1", userId: "user-1" }),
+    ).rejects.toMatchObject({ status: 500 });
+  });
+
   it("e idempotente quando a entrada ja esta rodando", async () => {
     const runningSince = new Date("2026-08-10T09:30:00.000Z");
     mockSelect.mockReturnValue(
