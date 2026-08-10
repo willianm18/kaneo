@@ -16,6 +16,7 @@
 - O horário gravado é **sempre o do servidor** (`new Date()` no controller). O cliente nunca envia "agora".
 - Toda operação de transição é **idempotente**, exceto `pause` em entrada encerrada, que retorna 409.
 - Convenções obrigatórias do `CLAUDE.md`: controller fino em `{feature}/controllers/`, rota com `describeRoute`, entrada validada com Valibot, `HTTPException` no backend, toast (`sonner`) no frontend, aspas duplas, ponto e vírgula, `type` em vez de `interface`.
+- **Tratamento de erro consistente supera a letra do plano** (decidido em 10/08/2026, após a Task 2). Onde o código de referência deste plano omitir um guard que o código vizinho do Kaneo pratica — por exemplo, checar o resultado de um `.returning()` antes de devolvê-lo, como `create-time-entry.ts` faz —, **inclua o guard** e cubra-o com teste. Isso não é escopo extra: é seguir o padrão da casa. Continua valendo o YAGNI para funcionalidade nova não pedida.
 - **Nenhuma string literal na UI**: todo texto usa `useTranslation()` com chave i18n. Após adicionar chaves em `i18n/en-US.json` e `i18n/pt-BR.json`, rodar `pnpm i18n:check:fix` (propaga aos 18 idiomas) e `pnpm i18n:schema`.
 - **Ambiente local** (ver memória do projeto): subir com `pnpm --filter @kaneo/api dev` e `pnpm --filter @kaneo/web dev` em processos separados — `pnpm dev` via Turbo não sobe a API neste Windows. API em `http://localhost:1337/api/health`, web em `http://localhost:5173`, Postgres em `localhost:5433`.
 - **Antes de cada commit**, rodar `pnpm exec biome ci .` — deve terminar com `Found 0 errors` (warnings são aceitáveis e pré-existentes). O pre-commit também roda o build completo (~16s). Se aparecer "File content differs from formatting output" em `apps/site/next-env.d.ts`, converter esse arquivo gerado para LF.
@@ -156,12 +157,17 @@ vi.mock("../../../apps/api/src/events", () => ({
 
 import startTimer from "../../../apps/api/src/time-entry/controllers/start-timer";
 
+// O chain precisa ser "thenable": `start-timer` faz duas consultas de formatos
+// diferentes — uma termina em .limit() e a busca do titulo da tarefa termina em
+// .where(). Sem o `then`, o await sobre o chain devolveria o proprio objeto e o
+// destructuring `const [task] = ...` estouraria.
 function makeSelectMock(rows: unknown[]) {
-  const chain: Record<string, Mock> = {
-    from: vi.fn(() => chain),
-    where: vi.fn(() => chain),
-    limit: vi.fn(() => Promise.resolve(rows)),
-  };
+  // biome-ignore lint/suspicious/noExplicitAny: mock de query builder encadeado
+  const chain: any = {};
+  chain.from = vi.fn(() => chain);
+  chain.where = vi.fn(() => chain);
+  chain.limit = vi.fn(() => Promise.resolve(rows));
+  chain.then = (resolve: (value: unknown) => unknown) => resolve(rows);
   return chain;
 }
 
@@ -251,7 +257,7 @@ describe("startTimer", () => {
 Run: `pnpm --filter @kaneo/api exec vitest run ../../tests/api/time-entry/start-timer.test.ts`
 Expected: FAIL — não resolve o módulo `start-timer`.
 
-> Se o caminho relativo não resolver, rode a partir da raiz: `pnpm exec vitest run tests/api/time-entry/start-timer.test.ts --config apps/api/vitest.config.ts`.
+> Se o caminho relativo não resolver, rode a partir da raiz: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api/time-entry/start-timer.test.ts`.
 
 - [ ] **Step 3: Implementar o controller**
 
@@ -343,10 +349,8 @@ export default startTimer;
 
 - [ ] **Step 4: Rodar o teste e confirmar que passa**
 
-Run: `pnpm exec vitest run tests/api/time-entry/start-timer.test.ts --config apps/api/vitest.config.ts`
+Run: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api/time-entry/start-timer.test.ts`
 Expected: PASS, 3 testes.
-
-> O terceiro teste (`select` do `taskTable` após o insert) usa o mesmo `mockSelect`; como o primeiro `select` retorna `[]` via `limit`, e o segundo termina em `where`, ajuste `makeSelectMock` para que `where` também resolva como Promise se o teste acusar erro de encadeamento.
 
 - [ ] **Step 5: Commit**
 
@@ -481,7 +485,7 @@ describe("pauseTimer", () => {
 
 - [ ] **Step 2: Rodar e confirmar falha**
 
-Run: `pnpm exec vitest run tests/api/time-entry/pause-timer.test.ts --config apps/api/vitest.config.ts`
+Run: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api/time-entry/pause-timer.test.ts`
 Expected: FAIL — módulo inexistente.
 
 - [ ] **Step 3: Implementar `pauseTimer`**
@@ -544,7 +548,7 @@ export default pauseTimer;
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `pnpm exec vitest run tests/api/time-entry/pause-timer.test.ts --config apps/api/vitest.config.ts`
+Run: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api/time-entry/pause-timer.test.ts`
 Expected: PASS, 4 testes.
 
 - [ ] **Step 5: Escrever o teste de `stopTimer`**
@@ -688,7 +692,7 @@ export default stopTimer;
 
 - [ ] **Step 7: Rodar todos os testes de time-entry**
 
-Run: `pnpm exec vitest run tests/api/time-entry --config apps/api/vitest.config.ts`
+Run: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api/time-entry`
 Expected: PASS em todos os arquivos, incluindo o `update-time-entry.test.ts` pré-existente.
 
 - [ ] **Step 8: Commit**
@@ -743,7 +747,7 @@ por:
 
 - [ ] **Step 2: Rodar os testes existentes de `update-time-entry`**
 
-Run: `pnpm exec vitest run tests/api/time-entry/update-time-entry.test.ts --config apps/api/vitest.config.ts`
+Run: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api/time-entry/update-time-entry.test.ts`
 Expected: PASS. O teste "preserves a stored endTime and duration when endTime is omitted" espera `duration: 2700`; com `duration: 3600` armazenado e `runningSince` ausente no mock, `wasTimed` é `true` e o valor preservado passa a ser `3600`. **Atualize esse teste** para reconhecer o novo contrato: mude a expectativa para `duration: 3600` e renomeie para `"preserva o acumulado de uma entrada cronometrada"`. Adicione um caso novo cobrindo o lançamento manual:
 
 ```ts
@@ -780,7 +784,7 @@ Expected: PASS. O teste "preserves a stored endTime and duration when endTime is
 Crie `apps/api/src/time-entry/controllers/get-active-timers.ts`:
 
 ```ts
-import { and, eq, isNull, isNotNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import db from "../../database";
 import { projectTable, taskTable, timeEntryTable } from "../../database/schema";
 
@@ -799,11 +803,7 @@ async function getActiveTimers(userId: string) {
     .innerJoin(taskTable, eq(timeEntryTable.taskId, taskTable.id))
     .innerJoin(projectTable, eq(taskTable.projectId, projectTable.id))
     .where(
-      and(
-        eq(timeEntryTable.userId, userId),
-        isNull(timeEntryTable.endTime),
-        isNotNull(timeEntryTable.startTime),
-      ),
+      and(eq(timeEntryTable.userId, userId), isNull(timeEntryTable.endTime)),
     );
 
   return rows.map((row) => ({
@@ -1142,7 +1142,7 @@ describe("updateTask — completedAt", () => {
 
 - [ ] **Step 2: Rodar e confirmar falha**
 
-Run: `pnpm exec vitest run tests/api/task/update-task-completed-at.test.ts --config apps/api/vitest.config.ts`
+Run: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api/task/update-task-completed-at.test.ts`
 Expected: FAIL — `updateTask` ainda recebe parâmetros posicionais.
 
 - [ ] **Step 3: Refatorar a assinatura e implementar as regras**
@@ -1224,7 +1224,7 @@ No `.set({ ... })` (linhas 56-67), acrescente:
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `pnpm exec vitest run tests/api/task/update-task-completed-at.test.ts --config apps/api/vitest.config.ts`
+Run: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api/task/update-task-completed-at.test.ts`
 Expected: PASS, 6 testes.
 
 - [ ] **Step 5: Atualizar o único chamador**
@@ -1268,7 +1268,7 @@ E na chamada:
 Run: `pnpm --filter @kaneo/api exec tsc --noEmit`
 Expected: sem erros.
 
-Run: `pnpm exec vitest run tests/api --config apps/api/vitest.config.ts`
+Run: `pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -2305,7 +2305,7 @@ Confirme, nesta ordem: mover a tarefa para **done** preenche a data de conclusã
 - [ ] **Step 7: Rodar a suíte completa e commitar**
 
 ```bash
-pnpm exec vitest run tests/api --config apps/api/vitest.config.ts
+pnpm --filter @kaneo/api exec vitest run --config vitest.config.ts ../../tests/api
 pnpm --filter @kaneo/web exec vitest run
 pnpm --filter @kaneo/web exec tsc --noEmit
 pnpm exec biome ci .
