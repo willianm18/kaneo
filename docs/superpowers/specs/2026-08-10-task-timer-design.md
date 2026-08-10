@@ -1,4 +1,4 @@
-# Timer de apontamento de horas — design
+# Timer de apontamento e campos de tempo da tarefa — design
 
 Data: 2026-08-10
 Status: aprovado, pronto para plano de implementação
@@ -8,6 +8,10 @@ Status: aprovado, pronto para plano de implementação
 Registrar quanto tempo se gasta em cada tarefa exige hoje calcular o intervalo na mão e lançar
 um apontamento fechado. Falta o gesto natural: clicar para começar, pausar quando for
 interrompido, retomar, e encerrar quando terminar.
+
+Além disso, a tarefa não guarda **quando foi efetivamente concluída** nem **quanto se
+esperava que ela levasse**. Com esses dois campos, mais as horas do timer, passa a ser
+possível responder "entregou no prazo?" e "quanto custou frente ao previsto?".
 
 ## Estado atual do código
 
@@ -24,6 +28,13 @@ O backend já tem quase toda a fundação:
 O frontend tem fetchers, hooks e tipos em `apps/web/src/{fetchers,hooks,types}/time-entry/`,
 mas **nenhuma tela os consome**. Não existe interface de apontamento. Não há dado legado:
 a tabela `time_entry` está vazia em produção.
+
+Na tabela `task` existem `startDate` e `dueDate` (ambos de planejamento, usados pela visão
+Gantt), mais `status` com os valores `to-do`, `planned`, `in-progress`, `in-review`, `done`
+e `archived`. **Não existe** campo de conclusão real nem de estimativa. Mudanças de status
+já geram evento `task.status_changed` e uma activity `type: "status_changed"`, de onde a
+data de conclusão seria derivável — porém sem índice, exigindo interpretar conteúdo e
+tratar reaberturas, o que é frágil demais para servir de base a relatório.
 
 ## Decisões
 
@@ -51,6 +62,16 @@ o horário do servidor, para que um relógio errado na máquina do usuário não
 existência de dois totais concorrentes na mesma linha, que seria a origem natural de
 relatórios divergentes.
 
+**`completedAt` é automático e também editável**, em vez de apenas automático. O
+preenchimento no `done` cobre o caso comum, e a edição manual cobre o caso real de concluir
+o trabalho num dia e registrar no sistema noutro. A consequência aceita é que a data deixa
+de ser prova auditável do momento da conclusão — ela passa a refletir o que o usuário
+afirma, não o que o sistema observou.
+
+**A estimativa entra junto, antes de existir histórico de horas reais.** A alternativa
+considerada era medir primeiro e estimar depois, com dados. Optou-se por ter o campo desde
+o início; o risco assumido é ele ficar vazio se a disciplina de preencher não se firmar.
+
 ## Fora de escopo
 
 - **Tratamento de timer esquecido rodando** (corte automático após N horas, alerta de
@@ -62,12 +83,25 @@ relatórios divergentes.
 
 ## Schema
 
-Uma coluna nova em `timeEntryTable` (`apps/api/src/database/schema.ts`), gerando a migração
-`0038` via `pnpm --filter @kaneo/api db:generate`:
+Três colunas novas, todas na mesma migração `0038`, gerada via
+`pnpm --filter @kaneo/api db:generate`.
+
+Em `timeEntryTable`:
 
 ```ts
 runningSince: timestamp("running_since", { mode: "date" }),
 ```
+
+Em `taskTable`:
+
+```ts
+completedAt: timestamp("completed_at", { mode: "date" }),
+estimatedSeconds: integer("estimated_seconds"),
+```
+
+`estimatedSeconds` fica em segundos para bater com a unidade de `duration`, evitando
+conversão na hora de comparar previsto com realizado. A interface recebe e exibe em
+horas e minutos.
 
 Os três estados derivam de campos existentes, sem coluna de status:
 
@@ -134,6 +168,35 @@ A resposta inclui `serverTime` (ISO 8601). O cliente calcula o desvio entre o pr
 relógio e o do servidor e aplica esse desvio ao animar os contadores, para que o tempo
 exibido não divirja do que será gravado.
 
+## Data de conclusão e estimativa
+
+Ambos os campos entram no `update-task` existente, aceitos no payload e validados com
+Valibot. Nenhuma rota nova é necessária.
+
+### `completedAt`
+
+Preenchimento automático **e** edição manual, conforme decidido:
+
+- **Ao entrar em `done`**: se `completed_at` estiver vazio, grava o horário atual. Se já
+  tiver valor, preserva — assim uma data que você corrigiu à mão não é sobrescrita.
+- **Editável a qualquer momento** pelo formulário da tarefa. Esse é o caso de uso real:
+  terminar na sexta e só marcar como concluída na segunda, corrigindo a data para sexta.
+- **Ao sair de `done`**: o campo é limpo. Uma tarefa não concluída não pode carregar data
+  de conclusão. Ao ser concluída de novo, o ciclo recomeça do preenchimento automático.
+- **Validação**: data no futuro é rejeitada com `HTTPException 400`. Concluir algo que
+  ainda não aconteceu não é um estado válido.
+
+O ponto de implementação é `apps/api/src/task/controllers/update-task.ts`, dentro do
+`if (existingTask.status !== status)` que já existe para publicar `task.status_changed`.
+
+### `estimatedSeconds`
+
+Campo livre, sem preenchimento automático, editável no formulário da tarefa. Aceita nulo
+(sem estimativa). Valores negativos são rejeitados com `HTTPException 400`.
+
+Exibido ao lado do total realizado do timer, para que o desvio entre previsto e realizado
+fique visível sem cálculo mental.
+
 ## Frontend
 
 **`TaskTimer`** — na página da tarefa
@@ -146,6 +209,11 @@ telas do dashboard. Lista as entradas abertas com tarefa, contador e ações: os
 oferecem pausar e encerrar; os pausados oferecem retomar e encerrar. **Não renderiza nada
 quando não há entrada aberta.** Sem arrastar, sem minimizar, sem estado de UI persistido —
 é uma lista, não um widget.
+
+**Campos da tarefa** — no formulário de edição da tarefa, junto de `startDate` e `dueDate`:
+um seletor de data e hora para `completedAt` e uma entrada de horas e minutos para a
+estimativa. O `completedAt` aparece preenchido automaticamente após a conclusão e continua
+editável.
 
 Fetchers em `apps/web/src/fetchers/time-entry/` e hooks de mutação e query no padrão
 existente. Após cada mutação, invalidar as queries de entradas da tarefa e de timers ativos,
@@ -168,6 +236,14 @@ Testes unitários da API em `tests/api/`:
 - `pause` em entrada encerrada retorna 409.
 - `start` numa tarefa que já tem entrada aberta retoma aquela entrada, sem criar outra.
 - Timers simultâneos em tarefas distintas coexistem.
+
+Para os campos da tarefa:
+
+- Mover para `done` preenche `completedAt` quando vazio.
+- Mover para `done` **não** sobrescreve um `completedAt` já definido manualmente.
+- Sair de `done` limpa `completedAt`.
+- `completedAt` no futuro é rejeitado com 400.
+- `estimatedSeconds` negativo é rejeitado com 400; nulo é aceito.
 
 Teste de componente do `TaskTimer` com Vitest, no padrão de
 `apps/web/src/components/kanban-board/task-labels.test.tsx`.
