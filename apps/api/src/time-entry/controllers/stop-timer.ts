@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import db from "../../database";
 import { timeEntryTable } from "../../database/schema";
+import { accumulateDuration } from "../accumulate-duration";
 import getOwnedTimeEntry from "./get-owned-time-entry";
 
 async function stopTimer({
@@ -18,17 +19,15 @@ async function stopTimer({
   }
 
   const now = new Date();
-  const elapsed = entry.runningSince
-    ? Math.max(
-        0,
-        Math.floor((now.getTime() - entry.runningSince.getTime()) / 1000),
-      )
-    : 0;
 
   const [stopped] = await db
     .update(timeEntryTable)
     .set({
-      duration: (entry.duration ?? 0) + elapsed,
+      duration: accumulateDuration({
+        duration: entry.duration,
+        runningSince: entry.runningSince,
+        now,
+      }),
       runningSince: null,
       endTime: now,
     })

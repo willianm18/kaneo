@@ -1957,7 +1957,9 @@
 			"stop": "Finish",
 			"stopError": "Could not finish the timer",
 			"tracked": "Tracked",
-			"activeCount": "{{count}} open timer(s)"
+			"activeCount": "{{count}} open timer(s)",
+			"pausedCount": "{{count}} paused",
+			"runningCount": "{{count}} running"
 		}
 	},
 	"invitations": {

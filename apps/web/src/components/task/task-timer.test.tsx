@@ -9,10 +9,12 @@ let activeData: unknown = {
   entries: [],
   serverTime: "2026-08-10T12:00:00.000Z",
 };
+let timeEntriesData: unknown = [];
 
 afterEach(() => {
   cleanup();
   document.body.innerHTML = "";
+  vi.useRealTimers();
 });
 
 vi.mock("react-i18next", () => ({
@@ -21,6 +23,10 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/hooks/queries/time-entry/use-active-timers", () => ({
   default: () => ({ data: activeData }),
+}));
+
+vi.mock("@/hooks/queries/time-entry/use-get-time-entries", () => ({
+  default: () => ({ data: timeEntriesData }),
 }));
 
 vi.mock("@/hooks/mutations/time-entry/use-start-timer", () => ({
@@ -51,6 +57,7 @@ describe("formatDuration", () => {
 describe("TaskTimer", () => {
   it("mostra apenas iniciar quando nao ha entrada aberta", () => {
     activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
+    timeEntriesData = [];
 
     render(<TaskTimer taskId="task-1" />);
 
@@ -71,6 +78,7 @@ describe("TaskTimer", () => {
       ],
       serverTime: "2026-08-10T12:00:00.000Z",
     };
+    timeEntriesData = [];
 
     render(<TaskTimer taskId="task-1" />);
 
@@ -91,6 +99,7 @@ describe("TaskTimer", () => {
       ],
       serverTime: "2026-08-10T12:00:00.000Z",
     };
+    timeEntriesData = [];
 
     render(<TaskTimer taskId="task-1" />);
 
@@ -100,10 +109,11 @@ describe("TaskTimer", () => {
 
   it("modo compacto mostra apenas o cronometro e iniciar quando nao ha entrada aberta", () => {
     activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
+    timeEntriesData = [];
 
     render(<TaskTimer taskId="task-1" compact />);
 
-    expect(screen.getByText("00:00:00")).toBeInTheDocument();
+    expect(screen.getAllByText("00:00:00")).toHaveLength(2);
     expect(
       screen.getByRole("button", { name: "tasks:timer.start" }),
     ).toBeInTheDocument();
@@ -125,6 +135,7 @@ describe("TaskTimer", () => {
       ],
       serverTime: "2026-08-10T12:00:00.000Z",
     };
+    timeEntriesData = [];
 
     render(<TaskTimer taskId="task-1" compact />);
 
@@ -135,5 +146,91 @@ describe("TaskTimer", () => {
     expect(
       screen.getByRole("button", { name: "tasks:timer.stop" }),
     ).toBeInTheDocument();
+  });
+
+  it("mostra o total apontado somando entradas fechadas mesmo sem timer ativo", () => {
+    // Este e' O CRITERIO DE ACEITE: apos parar o timer (nenhuma entrada
+    // ativa), o tempo ja apontado continua visivel na tarefa.
+    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        duration: 125,
+        runningSince: null,
+        endTime: "2026-08-10T11:00:00.000Z",
+      },
+      {
+        id: "te-2",
+        taskId: "task-1",
+        duration: 75,
+        runningSince: null,
+        endTime: "2026-08-10T11:30:00.000Z",
+      },
+    ];
+
+    render(<TaskTimer taskId="task-1" />);
+
+    expect(screen.getByText("tasks:timer.tracked:")).toBeInTheDocument();
+    expect(screen.getByText("00:03:20")).toBeInTheDocument();
+  });
+
+  it("modo compacto tambem mostra o total apontado apos parar o timer", () => {
+    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        duration: 200,
+        runningSince: null,
+        endTime: "2026-08-10T11:00:00.000Z",
+      },
+    ];
+
+    render(<TaskTimer taskId="task-1" compact />);
+
+    expect(screen.getByText("tasks:timer.tracked:")).toBeInTheDocument();
+    expect(screen.getByText("00:03:20")).toBeInTheDocument();
+  });
+
+  it("soma o trecho em andamento de uma entrada aberta ao total apontado", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T12:05:00.000Z"));
+
+    activeData = {
+      entries: [
+        {
+          id: "te-2",
+          taskId: "task-1",
+          duration: 100,
+          runningSince: "2026-08-10T12:00:00.000Z",
+          isRunning: true,
+        },
+      ],
+      serverTime: "2026-08-10T12:05:00.000Z",
+    };
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        duration: 300,
+        runningSince: null,
+        endTime: "2026-08-10T11:00:00.000Z",
+      },
+      {
+        id: "te-2",
+        taskId: "task-1",
+        duration: 100,
+        runningSince: "2026-08-10T12:00:00.000Z",
+        endTime: null,
+      },
+    ];
+
+    render(<TaskTimer taskId="task-1" />);
+
+    // Fechadas: 300s + entrada aberta: 100s acumulados + 300s do trecho
+    // corrente (12:00 -> 12:05) = 700s = 00:11:40. Apenas o trecho corrente
+    // avanca; o restante e' estatico.
+    expect(screen.getByText("00:11:40")).toBeInTheDocument();
   });
 });

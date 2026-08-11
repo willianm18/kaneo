@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockFindFirstTask = vi.fn();
 const mockFindFirstColumn = vi.fn();
 const mockUpdate = vi.fn();
+const mockCloseOpenEntriesForTask = vi.fn(() => Promise.resolve(0));
 
 vi.mock("../../../apps/api/src/database", () => ({
   default: {
@@ -25,6 +26,16 @@ vi.mock("../../../apps/api/src/events", () => ({
 vi.mock("../../../apps/api/src/task/validate-task-fields", () => ({
   assertValidTaskStatus: vi.fn(() => Promise.resolve()),
 }));
+
+// close-open-entries-for-task performs its own db.select/db.update calls
+// against timeEntryTable; mocked separately so it never touches the
+// taskTable-shaped mockUpdate chain above.
+vi.mock(
+  "../../../apps/api/src/time-entry/controllers/close-open-entries-for-task",
+  () => ({
+    default: (...args: unknown[]) => mockCloseOpenEntriesForTask(...args),
+  }),
+);
 
 import updateTaskStatus from "../../../apps/api/src/task/controllers/update-task-status";
 
@@ -52,6 +63,7 @@ describe("updateTaskStatus — completedAt", () => {
     // Default: no matching column row for either lookup, so isColumnFinal()
     // falls back to the legacy `status === "done"` check.
     mockFindFirstColumn.mockResolvedValue(undefined);
+    mockCloseOpenEntriesForTask.mockResolvedValue(0);
   });
 
   it("preenche completedAt ao entrar em done", async () => {
@@ -200,5 +212,58 @@ describe("updateTaskStatus — completedAt", () => {
 
     const set = updateChain.set.mock.calls[0][0] as Record<string, unknown>;
     expect(set.completedAt).toBeNull();
+  });
+
+  it("encerra as entradas de tempo em aberto ao entrar em done", async () => {
+    mockFindFirstTask.mockResolvedValue(task("in-progress", null));
+    const updateChain = makeUpdateMock({
+      id: "task-1",
+      projectId: "project-1",
+    });
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTaskStatus({
+      id: "task-1",
+      status: "done",
+      currentUserId: "user-1",
+    });
+
+    expect(mockCloseOpenEntriesForTask).toHaveBeenCalledWith("task-1");
+  });
+
+  it("nao encerra entradas de tempo ao permanecer em done (re-save)", async () => {
+    const manual = new Date("2026-08-08T12:00:00.000Z");
+    mockFindFirstTask.mockResolvedValue(task("done", manual));
+    const updateChain = makeUpdateMock({
+      id: "task-1",
+      projectId: "project-1",
+    });
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTaskStatus({
+      id: "task-1",
+      status: "done",
+      currentUserId: "user-1",
+    });
+
+    expect(mockCloseOpenEntriesForTask).not.toHaveBeenCalled();
+  });
+
+  it("nao encerra nem reabre entradas de tempo ao sair de done", async () => {
+    const manual = new Date("2026-08-08T12:00:00.000Z");
+    mockFindFirstTask.mockResolvedValue(task("done", manual));
+    const updateChain = makeUpdateMock({
+      id: "task-1",
+      projectId: "project-1",
+    });
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTaskStatus({
+      id: "task-1",
+      status: "in-progress",
+      currentUserId: "user-1",
+    });
+
+    expect(mockCloseOpenEntriesForTask).not.toHaveBeenCalled();
   });
 });

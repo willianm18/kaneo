@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 const mockSelect = vi.fn();
 const mockUpdate = vi.fn();
 const mockFindFirstColumn = vi.fn();
+const mockCloseOpenEntriesForTask = vi.fn(() => Promise.resolve(0));
 
 vi.mock("../../../apps/api/src/database", () => ({
   default: {
@@ -27,6 +28,16 @@ vi.mock("../../../apps/api/src/task/validate-task-fields", () => ({
 vi.mock("../../../apps/api/src/storage/cleanup-assets", () => ({
   deleteOrphanedAssets: vi.fn(),
 }));
+
+// close-open-entries-for-task performs its own db.select/db.update calls
+// against timeEntryTable; mocked separately so it never touches the
+// taskTable-shaped mockSelect/mockUpdate chains above.
+vi.mock(
+  "../../../apps/api/src/time-entry/controllers/close-open-entries-for-task",
+  () => ({
+    default: (...args: unknown[]) => mockCloseOpenEntriesForTask(...args),
+  }),
+);
 
 import updateTask from "../../../apps/api/src/task/controllers/update-task";
 
@@ -72,6 +83,7 @@ describe("updateTask — completedAt", () => {
     // legacy `status === "done"` check. Individual tests override this to
     // simulate a real column (e.g. a renamed final column).
     mockFindFirstColumn.mockResolvedValue(undefined);
+    mockCloseOpenEntriesForTask.mockResolvedValue(0);
   });
 
   it("preenche completedAt ao entrar em done quando estava vazio", async () => {
@@ -245,5 +257,47 @@ describe("updateTask — completedAt", () => {
 
     const set = updateChain.set.mock.calls[0][0] as Record<string, unknown>;
     expect(set.completedAt).toBeNull();
+  });
+
+  it("encerra as entradas de tempo em aberto ao entrar em done", async () => {
+    mockSelect.mockReturnValue(makeSelectMock([existing("in-progress", null)]));
+    const updateChain = makeUpdateMock({
+      id: "task-1",
+      projectId: "project-1",
+    });
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTask({ ...base, status: "done" });
+
+    expect(mockCloseOpenEntriesForTask).toHaveBeenCalledWith("task-1");
+  });
+
+  it("nao encerra entradas de tempo ao permanecer em done (re-save)", async () => {
+    const manual = new Date("2026-08-08T12:00:00.000Z");
+    mockSelect.mockReturnValue(makeSelectMock([existing("done", manual)]));
+    const updateChain = makeUpdateMock({
+      id: "task-1",
+      projectId: "project-1",
+    });
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTask({ ...base, status: "done" });
+
+    expect(mockCloseOpenEntriesForTask).not.toHaveBeenCalled();
+  });
+
+  it("nao encerra nem reabre entradas de tempo ao sair de done", async () => {
+    mockSelect.mockReturnValue(
+      makeSelectMock([existing("done", new Date("2026-08-08T12:00:00.000Z"))]),
+    );
+    const updateChain = makeUpdateMock({
+      id: "task-1",
+      projectId: "project-1",
+    });
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTask({ ...base, status: "in-progress" });
+
+    expect(mockCloseOpenEntriesForTask).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import db from "../../database";
 import { columnTable, taskTable } from "../../database/schema";
 import { publishEvent } from "../../events";
 import { deleteOrphanedAssets } from "../../storage/cleanup-assets";
+import closeOpenEntriesForTask from "../../time-entry/controllers/close-open-entries-for-task";
 import {
   isColumnFinal,
   lookupIsColumnFinal,
@@ -97,14 +98,18 @@ async function updateTask({
     });
   }
 
+  // Computed unconditionally (not just for the implicit-completedAt branch
+  // below) because closing open time entries on entering a final column must
+  // happen regardless of whether the caller also passed an explicit
+  // completedAt.
+  const wasFinal = await lookupIsColumnFinal(projectId, existingTask.status);
+  const isFinal = isColumnFinal(status, column);
+
   let resolvedCompletedAt: Date | null;
   if (completedAt !== undefined) {
     // An explicit completedAt in the payload always wins.
     resolvedCompletedAt = completedAt;
   } else {
-    const wasFinal = await lookupIsColumnFinal(projectId, existingTask.status);
-    const isFinal = isColumnFinal(status, column);
-
     resolvedCompletedAt = resolveCompletedAt({
       wasFinal,
       isFinal,
@@ -135,6 +140,10 @@ async function updateTask({
     throw new HTTPException(500, {
       message: "Failed to update task",
     });
+  }
+
+  if (isFinal && !wasFinal) {
+    await closeOpenEntriesForTask(updatedTask.id);
   }
 
   if (existingTask.status !== status) {

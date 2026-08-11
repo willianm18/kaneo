@@ -12,6 +12,7 @@ import {
 import { publishEvent } from "../../events";
 import { removeLabelFromGitea } from "../../plugins/gitea/utils/sync-label-to-gitea";
 import { removeLabelFromGitHub } from "../../plugins/github/utils/sync-label-to-github";
+import closeOpenEntriesForTask from "../../time-entry/controllers/close-open-entries-for-task";
 import { isColumnFinal, resolveCompletedAt } from "../resolve-completed-at";
 import {
   assertValidPriority,
@@ -165,6 +166,10 @@ async function bulkUpdateTasks({
             .update(taskTable)
             .set({ completedAt: now })
             .where(inArray(taskTable.id, enteringFinalIds));
+
+          for (const enteringTaskId of enteringFinalIds) {
+            await closeOpenEntriesForTask(enteringTaskId, now);
+          }
         }
 
         if (leavingFinalIds.length > 0) {

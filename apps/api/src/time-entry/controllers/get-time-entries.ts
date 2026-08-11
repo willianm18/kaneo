@@ -13,6 +13,7 @@ async function getTimeEntriesByTaskId(taskId: string) {
       startTime: timeEntryTable.startTime,
       endTime: timeEntryTable.endTime,
       duration: timeEntryTable.duration,
+      runningSince: timeEntryTable.runningSince,
       createdAt: timeEntryTable.createdAt,
       updatedAt: timeEntryTable.updatedAt,
     })

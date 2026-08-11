@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import db from "../../database";
 import { columnTable, taskTable } from "../../database/schema";
 import { publishEvent } from "../../events";
+import closeOpenEntriesForTask from "../../time-entry/controllers/close-open-entries-for-task";
 import {
   isColumnFinal,
   lookupIsColumnFinal,
@@ -64,6 +65,10 @@ async function updateTaskStatus({
     throw new HTTPException(500, {
       message: "Failed to update task status",
     });
+  }
+
+  if (isFinal && !wasFinal) {
+    await closeOpenEntriesForTask(updatedTask.id);
   }
 
   await publishEvent("task.status_changed", {

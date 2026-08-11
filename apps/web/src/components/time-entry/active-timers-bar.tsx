@@ -63,7 +63,18 @@ function ActiveTimerRow({ entry, clockSkewMs }: ActiveTimerRowProps) {
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div
+      className={`flex items-center gap-2 ${
+        entry.isRunning ? "" : "opacity-60"
+      }`}
+    >
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+          entry.isRunning ? "bg-emerald-500" : "bg-muted-foreground"
+        }`}
+        aria-hidden="true"
+      />
+
       <Link
         to="/dashboard/workspace/$workspaceId/project/$projectId/task/$taskId"
         params={{
@@ -129,13 +140,27 @@ export default function ActiveTimersBar() {
     ? new Date(data.serverTime).getTime() - Date.now()
     : 0;
 
+  const runningCount = entries.filter((entry) => entry.isRunning).length;
+  const pausedCount = entries.length - runningCount;
+
+  // Running entries surface first so the timers still ticking are the ones
+  // that catch the eye; paused entries are visually de-emphasized below.
+  const sortedEntries = [...entries].sort(
+    (a, b) => Number(b.isRunning) - Number(a.isRunning),
+  );
+
   return (
     <div className="flex flex-wrap items-center gap-4 border-b border-border bg-card px-3 py-1.5">
-      <span className="text-xs text-muted-foreground">
-        {t("tasks:timer.activeCount", { count: entries.length })}
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {runningCount > 0 && (
+          <span>{t("tasks:timer.runningCount", { count: runningCount })}</span>
+        )}
+        {pausedCount > 0 && (
+          <span>{t("tasks:timer.pausedCount", { count: pausedCount })}</span>
+        )}
       </span>
 
-      {entries.map((entry) => (
+      {sortedEntries.map((entry) => (
         <ActiveTimerRow
           key={entry.id}
           entry={entry}

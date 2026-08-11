@@ -8,6 +8,7 @@ import {
   taskTable,
 } from "../../database/schema";
 import { publishEvent } from "../../events";
+import closeOpenEntriesForTask from "../../time-entry/controllers/close-open-entries-for-task";
 import {
   isColumnFinal,
   lookupIsColumnFinal,
@@ -191,6 +192,10 @@ async function moveTask({
 
     return updatedTask;
   });
+
+  if (isFinal && !wasFinal) {
+    await closeOpenEntriesForTask(taskId);
+  }
 
   await publishEvent("task.moved", {
     taskId,

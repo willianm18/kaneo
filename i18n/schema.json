@@ -6713,7 +6713,10 @@
 						"stopError": {
 							"type": "string"
 						},
-						"activeCount": {
+						"runningCount": {
+							"type": "string"
+						},
+						"pausedCount": {
 							"type": "string"
 						}
 					},
@@ -6727,7 +6730,8 @@
 						"startError",
 						"pauseError",
 						"stopError",
-						"activeCount"
+						"runningCount",
+						"pausedCount"
 					]
 				},
 				"move": {
