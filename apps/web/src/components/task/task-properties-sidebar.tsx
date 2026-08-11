@@ -46,6 +46,7 @@ import TaskMovePopover from "./task-move-popover";
 import TaskPriorityPopover from "./task-priority-popover";
 import TaskStartDatePopover from "./task-start-date-popover";
 import TaskStatusPopover from "./task-status-popover";
+import TaskTimer from "./task-timer";
 
 function slugify(text: string | undefined): string {
   if (!text) return "";
@@ -707,6 +708,11 @@ export default function TaskPropertiesSidebar({
                       )}
                     </Button>
                   </TaskDueDatePopover>
+                )}
+                {task && (
+                  <div className="px-1.5">
+                    <TaskTimer taskId={task.id} />
+                  </div>
                 )}
               </div>
             </div>

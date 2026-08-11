@@ -1688,6 +1688,17 @@
 			"startDate": "Start date",
 			"noDate": "No date"
 		},
+		"timer": {
+			"start": "Start",
+			"pause": "Pause",
+			"resume": "Resume",
+			"stop": "Finish",
+			"tracked": "Tracked",
+			"running": "Running",
+			"startError": "Could not start the timer",
+			"pauseError": "Could not pause the timer",
+			"stopError": "Could not finish the timer"
+		},
 		"move": {
 			"title": "Move task",
 			"projectLabel": "Destination project",

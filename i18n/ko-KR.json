@@ -1917,6 +1917,17 @@
 				"deleteRow": "행 삭제",
 				"deleteTable": "표 삭제"
 			}
+		},
+		"timer": {
+			"pause": "Pause",
+			"pauseError": "Could not pause the timer",
+			"resume": "Resume",
+			"running": "Running",
+			"start": "Start",
+			"startError": "Could not start the timer",
+			"stop": "Finish",
+			"stopError": "Could not finish the timer",
+			"tracked": "Tracked"
 		}
 	},
 	"invitations": {

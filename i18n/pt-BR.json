@@ -1688,6 +1688,17 @@
 			"startDate": "Data de início",
 			"noDate": "Sem data"
 		},
+		"timer": {
+			"start": "Iniciar",
+			"pause": "Pausar",
+			"resume": "Retomar",
+			"stop": "Encerrar",
+			"tracked": "Apontado",
+			"running": "Em andamento",
+			"startError": "Não foi possível iniciar o timer",
+			"pauseError": "Não foi possível pausar o timer",
+			"stopError": "Não foi possível encerrar o timer"
+		},
 		"move": {
 			"title": "Mover tarefa",
 			"projectLabel": "Projeto de destino",

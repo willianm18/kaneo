@@ -3639,6 +3639,12 @@
 								"repoNotFound": {
 									"type": "string"
 								},
+								"redirected": {
+									"type": "string"
+								},
+								"notGiteaInstance": {
+									"type": "string"
+								},
 								"verifyError": {
 									"type": "string"
 								},
@@ -3689,6 +3695,8 @@
 								"verifyOk",
 								"verifyWarning",
 								"repoNotFound",
+								"redirected",
+								"notGiteaInstance",
 								"verifyError",
 								"tokenRequired",
 								"tokenRequiredVerify",
@@ -6674,6 +6682,50 @@
 						"noDate"
 					]
 				},
+				"timer": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"start": {
+							"type": "string"
+						},
+						"pause": {
+							"type": "string"
+						},
+						"resume": {
+							"type": "string"
+						},
+						"stop": {
+							"type": "string"
+						},
+						"tracked": {
+							"type": "string"
+						},
+						"running": {
+							"type": "string"
+						},
+						"startError": {
+							"type": "string"
+						},
+						"pauseError": {
+							"type": "string"
+						},
+						"stopError": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"start",
+						"pause",
+						"resume",
+						"stop",
+						"tracked",
+						"running",
+						"startError",
+						"pauseError",
+						"stopError"
+					]
+				},
 				"move": {
 					"type": "object",
 					"additionalProperties": false,
@@ -7566,6 +7618,7 @@
 				"relations",
 				"subtasks",
 				"properties",
+				"timer",
 				"move",
 				"popover",
 				"backlog",
