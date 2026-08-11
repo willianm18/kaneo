@@ -47,7 +47,10 @@ export type AssistantResult = {
   conversationState?: OpenRouterMessage[];
 };
 
-function buildSystemPrompt(workspaceId?: string, projectId?: string): string {
+export function buildSystemPrompt(
+  workspaceId?: string,
+  projectId?: string,
+): string {
   const context = [
     workspaceId ? `Current workspace id: ${workspaceId}.` : null,
     projectId ? `Current project id: ${projectId}.` : null,
@@ -59,6 +62,10 @@ function buildSystemPrompt(workspaceId?: string, projectId?: string): string {
     "You are the Kaneo assistant. You help the user manage tasks by calling the available tools.",
     "Prefer acting over asking: if the user asks to open a ticket, create the task with the information given.",
     "When the user does not name a project, use the current one from the context below.",
+    "Stay scoped to the current project: any lookup or mutation (get_task, update_task, update_task_status, list_tasks, ...) must target the current project id from the context, unless the user explicitly names a different project. Never act on a task that turns out to belong to another project.",
+    "Standard status slugs are to-do, planned, in-progress, in-review, done, archived, but columns are customizable per project and may use different slugs. Never guess or translate a status string. When the user names a column or status (in any language, e.g. 'em andamento', 'to do', 'review'), call list_project_columns for the current project first and use the exact slug it returns. 'Em aberto'/'open' is not a status: it means every task whose column is not final (isFinal), i.e. everything except done/archived-type columns.",
+    "A reference like 'verify-proj-5' is <project-slug>-<task number>, not a task title or free text. Resolve it by listing the tasks of that project (list_tasks on the project matching the slug, defaulting to the current project when the slug matches it) and matching the `number` field exactly. Never resolve it by fuzzy-matching a title, and never search across other projects for it.",
+    "Do not guess the target of a mutation. If you cannot identify the exact task, project, or column unambiguously, ask a clarifying question instead of acting. Reporting success on the wrong item is worse than asking one question.",
     "Answer in the same language the user writes in.",
     context,
   ]
