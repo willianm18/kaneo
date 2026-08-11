@@ -8,6 +8,11 @@ import {
   taskTable,
 } from "../../database/schema";
 import { publishEvent } from "../../events";
+import {
+  isColumnFinal,
+  lookupIsColumnFinal,
+  resolveCompletedAt,
+} from "../resolve-completed-at";
 import { claimTaskNumber } from "./claim-task-numbers";
 
 type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -29,6 +34,7 @@ async function resolveDestinationStatus(
       id: columnTable.id,
       slug: columnTable.slug,
       position: columnTable.position,
+      isFinal: columnTable.isFinal,
     })
     .from(columnTable)
     .where(eq(columnTable.projectId, destinationProjectId))
@@ -133,6 +139,21 @@ async function moveTask({
     destinationStatus,
   );
 
+  // Source and destination projects can have entirely different workflows, so
+  // "was this task done?" and "will it be done?" are resolved against each
+  // project's own columns.
+  const wasFinal = await lookupIsColumnFinal(
+    existingTask.projectId,
+    existingTask.status,
+  );
+  const isFinal = isColumnFinal(resolvedColumn.slug, resolvedColumn);
+
+  const resolvedCompletedAt = resolveCompletedAt({
+    wasFinal,
+    isFinal,
+    existingCompletedAt: existingTask.completedAt,
+  });
+
   const movedTask = await db.transaction(async (tx) => {
     const [nextTaskNumber, nextPosition] = await Promise.all([
       claimTaskNumber(destinationProjectId, tx),
@@ -152,6 +173,7 @@ async function moveTask({
         columnId: resolvedColumn.id,
         number: nextTaskNumber,
         position: nextPosition,
+        completedAt: resolvedCompletedAt,
       })
       .where(eq(taskTable.id, taskId))
       .returning();

@@ -3,6 +3,11 @@ import { HTTPException } from "hono/http-exception";
 import db from "../../database";
 import { columnTable, taskTable } from "../../database/schema";
 import { publishEvent } from "../../events";
+import {
+  isColumnFinal,
+  lookupIsColumnFinal,
+  resolveCompletedAt,
+} from "../resolve-completed-at";
 import { assertValidTaskStatus } from "../validate-task-fields";
 
 async function updateTaskStatus({
@@ -33,9 +38,25 @@ async function updateTaskStatus({
     ),
   });
 
+  const wasFinal = await lookupIsColumnFinal(
+    existingTask.projectId,
+    existingTask.status,
+  );
+  const isFinal = isColumnFinal(status, column);
+
+  const resolvedCompletedAt = resolveCompletedAt({
+    wasFinal,
+    isFinal,
+    existingCompletedAt: existingTask.completedAt,
+  });
+
   const [updatedTask] = await db
     .update(taskTable)
-    .set({ status, columnId: column?.id ?? null })
+    .set({
+      status,
+      columnId: column?.id ?? null,
+      completedAt: resolvedCompletedAt,
+    })
     .where(eq(taskTable.id, id))
     .returning();
 

@@ -12,6 +12,7 @@ import {
 import { publishEvent } from "../../events";
 import { removeLabelFromGitea } from "../../plugins/gitea/utils/sync-label-to-gitea";
 import { removeLabelFromGitHub } from "../../plugins/github/utils/sync-label-to-github";
+import { isColumnFinal, resolveCompletedAt } from "../resolve-completed-at";
 import {
   assertValidPriority,
   assertValidTaskStatus,
@@ -41,9 +42,11 @@ async function bulkUpdateTasks({
     .select({
       id: taskTable.id,
       title: taskTable.title,
+      status: taskTable.status,
       projectId: taskTable.projectId,
       userId: taskTable.userId,
       dueDate: taskTable.dueDate,
+      completedAt: taskTable.completedAt,
       workspaceId: projectTable.workspaceId,
     })
     .from(taskTable)
@@ -102,16 +105,53 @@ async function bulkUpdateTasks({
       for (const projectId of projectIds) {
         await assertValidTaskStatus(value, projectId);
 
-        const column = await db.query.columnTable.findFirst({
-          where: and(
-            eq(columnTable.projectId, projectId),
-            eq(columnTable.slug, value),
-          ),
-        });
+        // Fetch every column for the project (not just the target) so we can
+        // resolve "was this task's previous status final?" per task below
+        // without an extra query per distinct previous status.
+        const projectColumns = await db
+          .select({
+            id: columnTable.id,
+            slug: columnTable.slug,
+            isFinal: columnTable.isFinal,
+          })
+          .from(columnTable)
+          .where(eq(columnTable.projectId, projectId));
 
-        const projectTaskIds = tasks
-          .filter((t) => t.projectId === projectId)
-          .map((t) => t.id);
+        const columnBySlug = new Map(
+          projectColumns.map((projectColumn) => [
+            projectColumn.slug,
+            projectColumn,
+          ]),
+        );
+        const column = columnBySlug.get(value);
+        const isFinal = isColumnFinal(value, column);
+
+        const projectTasks = tasks.filter((t) => t.projectId === projectId);
+        const projectTaskIds = projectTasks.map((t) => t.id);
+
+        const now = new Date();
+        const enteringFinalIds: string[] = [];
+        const leavingFinalIds: string[] = [];
+
+        for (const task of projectTasks) {
+          const wasFinal = isColumnFinal(
+            task.status,
+            columnBySlug.get(task.status),
+          );
+          const resolved = resolveCompletedAt({
+            wasFinal,
+            isFinal,
+            existingCompletedAt: task.completedAt,
+          });
+
+          if (resolved !== task.completedAt) {
+            if (resolved === null) {
+              leavingFinalIds.push(task.id);
+            } else {
+              enteringFinalIds.push(task.id);
+            }
+          }
+        }
 
         const result = await db
           .update(taskTable)
@@ -119,6 +159,20 @@ async function bulkUpdateTasks({
           .where(inArray(taskTable.id, projectTaskIds));
 
         updatedCount += result.rowCount ?? projectTaskIds.length;
+
+        if (enteringFinalIds.length > 0) {
+          await db
+            .update(taskTable)
+            .set({ completedAt: now })
+            .where(inArray(taskTable.id, enteringFinalIds));
+        }
+
+        if (leavingFinalIds.length > 0) {
+          await db
+            .update(taskTable)
+            .set({ completedAt: null })
+            .where(inArray(taskTable.id, leavingFinalIds));
+        }
 
         for (const taskId of projectTaskIds) {
           await publishEvent("task.status_changed", {

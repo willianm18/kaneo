@@ -40,6 +40,8 @@ export const taskSchema = v.object({
   ] as const),
   startDate: v.optional(v.date()),
   dueDate: v.optional(v.date()),
+  completedAt: v.nullable(v.date()),
+  estimatedSeconds: v.nullable(v.number()),
   createdAt: v.date(),
 });
 

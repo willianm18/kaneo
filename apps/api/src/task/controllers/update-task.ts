@@ -4,6 +4,11 @@ import db from "../../database";
 import { columnTable, taskTable } from "../../database/schema";
 import { publishEvent } from "../../events";
 import { deleteOrphanedAssets } from "../../storage/cleanup-assets";
+import {
+  isColumnFinal,
+  lookupIsColumnFinal,
+  resolveCompletedAt,
+} from "../resolve-completed-at";
 import { assertValidTaskStatus } from "../validate-task-fields";
 
 type UpdateTaskParams = {
@@ -92,18 +97,19 @@ async function updateTask({
     });
   }
 
-  const wasDone = existingTask.status === "done";
-  const isDone = status === "done";
-
   let resolvedCompletedAt: Date | null;
   if (completedAt !== undefined) {
+    // An explicit completedAt in the payload always wins.
     resolvedCompletedAt = completedAt;
-  } else if (isDone) {
-    resolvedCompletedAt = existingTask.completedAt ?? new Date();
-  } else if (wasDone) {
-    resolvedCompletedAt = null;
   } else {
-    resolvedCompletedAt = existingTask.completedAt ?? null;
+    const wasFinal = await lookupIsColumnFinal(projectId, existingTask.status);
+    const isFinal = isColumnFinal(status, column);
+
+    resolvedCompletedAt = resolveCompletedAt({
+      wasFinal,
+      isFinal,
+      existingCompletedAt: existingTask.completedAt,
+    });
   }
 
   const [updatedTask] = await db
