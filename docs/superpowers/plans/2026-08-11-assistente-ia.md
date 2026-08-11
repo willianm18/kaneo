@@ -770,6 +770,7 @@ const assistant = new Hono<{
       workspaceId: v.optional(v.string()),
       projectId: v.optional(v.string()),
       confirmations: v.optional(v.array(v.string())),
+      resumeFrom: v.optional(v.array(v.any())),
     }),
   ),
   async (c) => {
@@ -777,7 +778,7 @@ const assistant = new Hono<{
       throw new HTTPException(404, { message: "Assistant is not enabled" });
     }
 
-    const { messages, workspaceId, projectId, confirmations } =
+    const { messages, workspaceId, projectId, confirmations, resumeFrom } =
       c.req.valid("json");
     const { apiKey, model } = getAssistantConfig();
 
@@ -785,6 +786,7 @@ const assistant = new Hono<{
 
     const result = await runAssistant({
       messages,
+      resumeFrom,
       token,
       baseUrl: process.env.KANEO_API_URL || "http://localhost:1337",
       apiKey,
@@ -926,7 +928,16 @@ Crie `apps/web/src/components/assistant/assistant-chat.tsx`. Requisitos concreto
 - Estado local com a lista de mensagens (`AssistantMessage[]`) e o texto em digitação.
 - Enviar acrescenta a mensagem do usuário, chama o hook com o histórico completo, e acrescenta a resposta.
 - Enquanto a mutação está pendente, exibir `assistant.thinking`.
-- Quando a resposta trouxer `pendingConfirmation`, renderizar um bloco com `assistant.confirmTitle`, a `description` recebida, e os botões `assistant.confirm` / `assistant.cancel`. Confirmar reenvia **a mesma conversa** com `confirmations: [toolCallId]`; cancelar apenas descarta o bloco.
+- Quando a resposta trouxer `pendingConfirmation`, renderizar um bloco com `assistant.confirmTitle`, a `description` recebida, e os botões `assistant.confirm` / `assistant.cancel`.
+
+  **Guarde também o `conversationState` que vem junto.** Confirmar reenvia com
+  `confirmations: [toolCallId]` **e** `resumeFrom: conversationState`. Isso é obrigatório, não
+  detalhe: sem devolver o estado, o modelo re-deriva a exclusão e recebe um id novo, que nunca
+  vai bater com a confirmação — a exclusão jamais executaria, e as ferramentas benignas já
+  executadas rodariam de novo, duplicando tarefas. Foi um defeito encontrado em revisão e
+  corrigido no laço; o front precisa fazer a sua parte do contrato.
+
+  Cancelar apenas descarta o bloco e o estado guardado.
 - Quando a resposta trouxer `actions`, listar cada uma abaixo da mensagem.
 - Erro da mutação: exibir `assistant.error` na conversa (não um toast, para não sumir).
 - Sem mensagens: exibir `assistant.empty`.
@@ -938,7 +949,9 @@ Crie `apps/web/src/components/assistant/assistant-chat.test.tsx`, mockando `use-
 
 1. Digitar e enviar exibe a resposta do assistente.
 2. Uma resposta com `pendingConfirmation` renderiza o bloco de confirmação e **não** mostra resposta final.
-3. Clicar em confirmar chama a mutação de novo incluindo `confirmations` com o `toolCallId` recebido.
+3. Clicar em confirmar chama a mutação de novo incluindo `confirmations` com o `toolCallId`
+   recebido **e** `resumeFrom` com o `conversationState` recebido. Asserte os dois: só o
+   `toolCallId` não basta, e essa é exatamente a falha que a revisão pegou no backend.
 
 Run: `pnpm --filter @kaneo/web exec vitest run src/components/assistant/`
 Expected: PASS.
