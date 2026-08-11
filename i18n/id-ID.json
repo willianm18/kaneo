@@ -2131,5 +2131,17 @@
 		"branding": {
 			"poweredBy": "Didukung oleh"
 		}
+	},
+	"assistant": {
+		"actionsTitle": "Actions performed",
+		"cancel": "Cancel",
+		"confirm": "Confirm",
+		"confirmTitle": "Confirmation needed",
+		"empty": "Ask the assistant to create, update, or find tasks for you.",
+		"error": "Something went wrong. Please try again.",
+		"placeholder": "Message the assistant…",
+		"send": "Send",
+		"thinking": "Thinking…",
+		"viewTask": "View task"
 	}
 }

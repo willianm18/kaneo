@@ -8423,6 +8423,54 @@
 				"copyUrl",
 				"branding"
 			]
+		},
+		"assistant": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"empty": {
+					"type": "string"
+				},
+				"placeholder": {
+					"type": "string"
+				},
+				"send": {
+					"type": "string"
+				},
+				"thinking": {
+					"type": "string"
+				},
+				"error": {
+					"type": "string"
+				},
+				"confirmTitle": {
+					"type": "string"
+				},
+				"confirm": {
+					"type": "string"
+				},
+				"cancel": {
+					"type": "string"
+				},
+				"actionsTitle": {
+					"type": "string"
+				},
+				"viewTask": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"empty",
+				"placeholder",
+				"send",
+				"thinking",
+				"error",
+				"confirmTitle",
+				"confirm",
+				"cancel",
+				"actionsTitle",
+				"viewTask"
+			]
 		}
 	},
 	"required": [
@@ -8436,6 +8484,7 @@
 		"invitations",
 		"workspace",
 		"team",
-		"publicProject"
+		"publicProject",
+		"assistant"
 	]
 }

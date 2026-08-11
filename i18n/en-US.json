@@ -2130,5 +2130,17 @@
 		"branding": {
 			"poweredBy": "Powered by"
 		}
+	},
+	"assistant": {
+		"empty": "Ask the assistant to create, update, or find tasks for you.",
+		"placeholder": "Message the assistant…",
+		"send": "Send",
+		"thinking": "Thinking…",
+		"error": "Something went wrong. Please try again.",
+		"confirmTitle": "Confirmation needed",
+		"confirm": "Confirm",
+		"cancel": "Cancel",
+		"actionsTitle": "Actions performed",
+		"viewTask": "View task"
 	}
 }

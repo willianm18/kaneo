@@ -2130,5 +2130,17 @@
 		"branding": {
 			"poweredBy": "Desenvolvido por"
 		}
+	},
+	"assistant": {
+		"empty": "Peça ao assistente para criar, atualizar ou encontrar tarefas para você.",
+		"placeholder": "Envie uma mensagem para o assistente…",
+		"send": "Enviar",
+		"thinking": "Pensando…",
+		"error": "Algo deu errado. Tente novamente.",
+		"confirmTitle": "Confirmação necessária",
+		"confirm": "Confirmar",
+		"cancel": "Cancelar",
+		"actionsTitle": "Ações executadas",
+		"viewTask": "Ver tarefa"
 	}
 }
