@@ -1697,7 +1697,8 @@
 			"running": "Running",
 			"startError": "Could not start the timer",
 			"pauseError": "Could not pause the timer",
-			"stopError": "Could not finish the timer"
+			"stopError": "Could not finish the timer",
+			"activeCount": "{{count}} open timer(s)"
 		},
 		"move": {
 			"title": "Move task",

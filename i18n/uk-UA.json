@@ -1939,7 +1939,8 @@
 			"startError": "Could not start the timer",
 			"stop": "Finish",
 			"stopError": "Could not finish the timer",
-			"tracked": "Tracked"
+			"tracked": "Tracked",
+			"activeCount": "{{count}} open timer(s)"
 		}
 	},
 	"invitations": {

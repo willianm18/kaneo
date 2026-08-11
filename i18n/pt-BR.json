@@ -1697,7 +1697,8 @@
 			"running": "Em andamento",
 			"startError": "Não foi possível iniciar o timer",
 			"pauseError": "Não foi possível pausar o timer",
-			"stopError": "Não foi possível encerrar o timer"
+			"stopError": "Não foi possível encerrar o timer",
+			"activeCount": "{{count}} timer(s) aberto(s)"
 		},
 		"move": {
 			"title": "Mover tarefa",

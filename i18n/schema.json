@@ -6712,6 +6712,9 @@
 						},
 						"stopError": {
 							"type": "string"
+						},
+						"activeCount": {
+							"type": "string"
 						}
 					},
 					"required": [
@@ -6723,7 +6726,8 @@
 						"running",
 						"startError",
 						"pauseError",
-						"stopError"
+						"stopError",
+						"activeCount"
 					]
 				},
 				"move": {
