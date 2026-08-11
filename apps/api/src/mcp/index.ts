@@ -8,6 +8,7 @@ import {
 import { Hono } from "hono";
 import { describeRoute, resolver, validator } from "hono-openapi";
 import { auth } from "../auth";
+import { resolveApiBaseUrl } from "../utils/resolve-api-base-url";
 import {
   beginMcpAuthorization,
   decideMcpAuthorizationRequest,
@@ -28,10 +29,7 @@ import {
 } from "./schemas";
 import { registerMcpTools, toMcpToolRegistrar } from "./tools";
 
-const apiUrl = (process.env.KANEO_API_URL || "http://localhost:1337").replace(
-  /\/api\/?$/,
-  "",
-);
+const apiUrl = resolveApiBaseUrl();
 
 type McpSession = {
   transport: WebStandardStreamableHTTPServerTransport;

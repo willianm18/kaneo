@@ -3,8 +3,13 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { describeRoute, validator } from "hono-openapi";
 import * as v from "valibot";
+import { resolveApiBaseUrl } from "../utils/resolve-api-base-url";
 import { getAssistantConfig, isAssistantEnabled } from "./config";
 import runAssistant from "./controllers/run-assistant";
+import {
+  signConversationState,
+  verifyConversationState,
+} from "./conversation-signature";
 
 const assistant = new Hono<{
   Variables: { userId: string; session: Session | null };
@@ -33,6 +38,9 @@ const assistant = new Hono<{
       projectId: v.optional(v.string()),
       confirmations: v.optional(v.array(v.string())),
       resumeFrom: v.optional(v.array(v.any())),
+      // Required whenever resumeFrom is present — see the signature check
+      // below. Never trust resumeFrom on its own: see conversation-signature.ts.
+      conversationSignature: v.optional(v.string()),
     }),
   ),
   async (c) => {
@@ -50,16 +58,39 @@ const assistant = new Hono<{
       throw new HTTPException(401, { message: "Unauthorized" });
     }
     const token = session.token;
+    const authSecret = process.env.AUTH_SECRET || "";
 
-    const { messages, workspaceId, projectId, confirmations, resumeFrom } =
-      c.req.valid("json");
+    const {
+      messages,
+      workspaceId,
+      projectId,
+      confirmations,
+      resumeFrom,
+      conversationSignature,
+    } = c.req.valid("json");
+
+    // The server keeps no session store: resumeFrom + confirmations are
+    // client-supplied and, without a signature, a caller could fabricate an
+    // "assistant already asked to delete this and I already confirmed it"
+    // conversation and skip the confirmation round-trip with the model
+    // entirely. Requiring a valid HMAC over the exact state we handed back
+    // closes that gap while staying stateless.
+    if (
+      resumeFrom !== undefined &&
+      !verifyConversationState(resumeFrom, conversationSignature, authSecret)
+    ) {
+      throw new HTTPException(400, {
+        message: "Missing or invalid conversationSignature for resumeFrom",
+      });
+    }
+
     const { apiKey, model } = getAssistantConfig();
 
     const result = await runAssistant({
       messages,
       resumeFrom,
       token,
-      baseUrl: process.env.KANEO_API_URL || "http://localhost:1337",
+      baseUrl: resolveApiBaseUrl(),
       apiKey,
       model,
       workspaceId,
@@ -67,7 +98,17 @@ const assistant = new Hono<{
       confirmations,
     });
 
-    return c.json(result);
+    if (!result.conversationState) {
+      return c.json(result);
+    }
+
+    return c.json({
+      ...result,
+      conversationSignature: signConversationState(
+        result.conversationState,
+        authSecret,
+      ),
+    });
   },
 );
 
