@@ -145,21 +145,23 @@ const timeEntry = new Hono<{
     validator(
       "json",
       v.object({
-        startTime: v.string(),
+        startTime: v.optional(v.string()),
         endTime: v.optional(v.string()),
         description: v.optional(v.string()),
+        duration: v.optional(v.number()),
       }),
     ),
     workspaceAccess.fromTimeEntry(),
     requireWorkspacePermission({ task: ["update"] }),
     async (c) => {
       const { id } = c.req.valid("param");
-      const { startTime, endTime, description } = c.req.valid("json");
+      const { startTime, endTime, description, duration } = c.req.valid("json");
       const timeEntry = await updateTimeEntry({
         timeEntryId: id,
-        startTime: new Date(startTime),
+        startTime: startTime ? new Date(startTime) : undefined,
         endTime: endTime ? new Date(endTime) : undefined,
         description,
+        duration,
       });
       return c.json(timeEntry);
     },

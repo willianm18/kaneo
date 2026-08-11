@@ -1699,7 +1699,9 @@
 			"pauseError": "Could not pause the timer",
 			"stopError": "Could not finish the timer",
 			"runningCount": "{{count}} running",
-			"pausedCount": "{{count}} paused"
+			"pausedCount": "{{count}} paused",
+			"trackedUpdateSuccess": "Tracked time updated successfully",
+			"trackedUpdateError": "Failed to update tracked time"
 		},
 		"move": {
 			"title": "Move task",

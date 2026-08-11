@@ -12,6 +12,7 @@ async function updateTimeEntry({
   startTime,
   endTime,
   description,
+  duration,
 }: UpdateTimeEntryRequest) {
   const response = await client["time-entry"][":id"].$put({
     param: { id },
@@ -19,6 +20,7 @@ async function updateTimeEntry({
       startTime,
       endTime,
       description,
+      duration,
     },
   });
 

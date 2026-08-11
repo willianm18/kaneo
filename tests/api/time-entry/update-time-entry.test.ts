@@ -212,4 +212,127 @@ describe("updateTimeEntry", () => {
       duration: null,
     });
   });
+
+  it("sets the accumulated total directly when duration is provided", async () => {
+    const storedStartTime = new Date("2026-08-10T10:00:00.000Z");
+    const storedEndTime = new Date("2026-08-10T11:00:00.000Z");
+    const updateChain = makeUpdateMock({ id: "time-entry-1" });
+
+    mockSelect.mockReturnValue(
+      makeSelectMock([
+        {
+          id: "time-entry-1",
+          startTime: storedStartTime,
+          endTime: storedEndTime,
+          duration: 3600,
+          runningSince: null,
+        },
+      ]),
+    );
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTimeEntry({
+      timeEntryId: "time-entry-1",
+      duration: 5400,
+    });
+
+    // startTime/endTime nao foram enviados: mantem os valores armazenados.
+    // duration passa a ser exatamente o que foi pedido, sem heuristica.
+    expect(updateChain.set).toHaveBeenCalledWith({
+      startTime: storedStartTime,
+      endTime: storedEndTime,
+      duration: 5400,
+    });
+  });
+
+  it("rejects a negative duration with 400", async () => {
+    const updateChain = makeUpdateMock({});
+
+    mockSelect.mockReturnValue(
+      makeSelectMock([
+        {
+          id: "time-entry-1",
+          startTime: new Date("2026-08-10T10:00:00.000Z"),
+          endTime: null,
+          duration: 100,
+          runningSince: null,
+        },
+      ]),
+    );
+    mockUpdate.mockReturnValue(updateChain);
+
+    await expect(
+      updateTimeEntry({
+        timeEntryId: "time-entry-1",
+        duration: -1,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    expect(updateChain.set).not.toHaveBeenCalled();
+  });
+
+  it("resets runningSince to now when editing duration on a running entry, to avoid double counting", async () => {
+    const runningSince = new Date("2026-08-10T09:00:00.000Z");
+    const updateChain = makeUpdateMock({ id: "time-entry-1" });
+
+    mockSelect.mockReturnValue(
+      makeSelectMock([
+        {
+          id: "time-entry-1",
+          startTime: new Date("2026-08-10T08:00:00.000Z"),
+          endTime: null,
+          duration: 600,
+          runningSince,
+        },
+      ]),
+    );
+    mockUpdate.mockReturnValue(updateChain);
+
+    const before = Date.now();
+    await updateTimeEntry({
+      timeEntryId: "time-entry-1",
+      duration: 900,
+    });
+    const after = Date.now();
+
+    const set = updateChain.set.mock.calls[0][0] as {
+      duration: number;
+      runningSince: Date;
+    };
+    expect(set.duration).toBe(900);
+    expect(set.runningSince).toBeInstanceOf(Date);
+    expect(set.runningSince.getTime()).toBeGreaterThanOrEqual(before);
+    expect(set.runningSince.getTime()).toBeLessThanOrEqual(after);
+    // A entrada nao estava rodando desde antes do rebase — o trecho corrente
+    // pre-edicao nao sera somado de novo por cima do valor editado.
+    expect(set.runningSince.getTime()).not.toBe(runningSince.getTime());
+  });
+
+  it("does not touch runningSince when editing duration on a paused/closed entry", async () => {
+    const updateChain = makeUpdateMock({ id: "time-entry-1" });
+
+    mockSelect.mockReturnValue(
+      makeSelectMock([
+        {
+          id: "time-entry-1",
+          startTime: new Date("2026-08-10T08:00:00.000Z"),
+          endTime: new Date("2026-08-10T09:00:00.000Z"),
+          duration: 3600,
+          runningSince: null,
+        },
+      ]),
+    );
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTimeEntry({
+      timeEntryId: "time-entry-1",
+      duration: 1200,
+    });
+
+    expect(updateChain.set).toHaveBeenCalledWith({
+      startTime: new Date("2026-08-10T08:00:00.000Z"),
+      endTime: new Date("2026-08-10T09:00:00.000Z"),
+      duration: 1200,
+    });
+  });
 });

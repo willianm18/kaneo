@@ -1,5 +1,6 @@
 import { Pause, Play, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useAuth } from "@/components/providers/auth-provider/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import usePauseTimer from "@/hooks/mutations/time-entry/use-pause-timer";
 import useStartTimer from "@/hooks/mutations/time-entry/use-start-timer";
@@ -10,6 +11,7 @@ import { useElapsedSeconds } from "@/hooks/use-elapsed-seconds";
 import { useTaskTotalTrackedSeconds } from "@/hooks/use-task-total-tracked-seconds";
 import { useWorkspacePermission } from "@/hooks/use-workspace-permission";
 import { toast } from "@/lib/toast";
+import TaskTotalPopover from "./task-total-popover";
 
 export function formatDuration(totalSeconds: number) {
   const hours = Math.floor(totalSeconds / 3600);
@@ -28,6 +30,7 @@ type TaskTimerProps = {
 
 export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { data } = useActiveTimers();
   const { data: timeEntries } = useGetTimeEntriesByTaskId(taskId);
   const { mutateAsync: startTimer, isPending: isStarting } = useStartTimer();
@@ -36,6 +39,13 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
   const { canManageTasks } = useWorkspacePermission();
 
   const entry = data?.entries.find((item) => item.taskId === taskId);
+  // The single-entry-per-(task,user) model means at most one item in
+  // `timeEntries` belongs to the current user, whether it's open, paused, or
+  // closed — `useActiveTimers` only covers the open case, so this is needed
+  // to find the entry to edit even after the timer has been stopped.
+  const myTimeEntryId = user?.id
+    ? timeEntries?.find((item) => item.userId === user.id)?.id
+    : undefined;
   const clockSkewMs = data?.serverTime
     ? new Date(data.serverTime).getTime() - Date.now()
     : 0;
@@ -118,15 +128,22 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
           </Button>
         )}
 
-        <span
-          className="flex items-center gap-1 text-[11px] text-muted-foreground px-1"
-          title={t("tasks:timer.tracked")}
+        <TaskTotalPopover
+          taskId={taskId}
+          timeEntryId={myTimeEntryId}
+          trackedSeconds={totalTracked}
         >
-          <span>{t("tasks:timer.tracked")}:</span>
-          <span className="font-mono tabular-nums">
-            {formatDuration(totalTracked)}
-          </span>
-        </span>
+          <button
+            type="button"
+            className="flex items-center gap-1 text-[11px] text-muted-foreground px-1 cursor-pointer"
+            title={t("tasks:timer.tracked")}
+          >
+            <span>{t("tasks:timer.tracked")}:</span>
+            <span className="font-mono tabular-nums">
+              {formatDuration(totalTracked)}
+            </span>
+          </button>
+        </TaskTotalPopover>
       </>
     );
   }
@@ -140,12 +157,21 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
         {formatDuration(elapsed)}
       </span>
 
-      <span className="flex items-center gap-1 text-xs text-muted-foreground">
-        <span>{t("tasks:timer.tracked")}:</span>
-        <span className="font-mono tabular-nums">
-          {formatDuration(totalTracked)}
-        </span>
-      </span>
+      <TaskTotalPopover
+        taskId={taskId}
+        timeEntryId={myTimeEntryId}
+        trackedSeconds={totalTracked}
+      >
+        <button
+          type="button"
+          className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer"
+        >
+          <span>{t("tasks:timer.tracked")}:</span>
+          <span className="font-mono tabular-nums">
+            {formatDuration(totalTracked)}
+          </span>
+        </button>
+      </TaskTotalPopover>
 
       {entry?.isRunning ? (
         <Button

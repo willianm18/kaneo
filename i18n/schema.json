@@ -6718,6 +6718,12 @@
 						},
 						"pausedCount": {
 							"type": "string"
+						},
+						"trackedUpdateSuccess": {
+							"type": "string"
+						},
+						"trackedUpdateError": {
+							"type": "string"
 						}
 					},
 					"required": [
@@ -6731,7 +6737,9 @@
 						"pauseError",
 						"stopError",
 						"runningCount",
-						"pausedCount"
+						"pausedCount",
+						"trackedUpdateSuccess",
+						"trackedUpdateError"
 					]
 				},
 				"move": {

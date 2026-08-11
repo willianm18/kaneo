@@ -2015,7 +2015,9 @@
 			"tracked": "Tracked",
 			"activeCount": "{{count}} open timer(s)",
 			"pausedCount": "{{count}} paused",
-			"runningCount": "{{count}} running"
+			"runningCount": "{{count}} running",
+			"trackedUpdateError": "Failed to update tracked time",
+			"trackedUpdateSuccess": "Tracked time updated successfully"
 		}
 	},
 	"invitations": {

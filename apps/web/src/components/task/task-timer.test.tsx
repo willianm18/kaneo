@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TaskTimer, { formatDuration } from "./task-timer";
 
@@ -39,6 +39,15 @@ vi.mock("@/hooks/mutations/time-entry/use-pause-timer", () => ({
 
 vi.mock("@/hooks/mutations/time-entry/use-stop-timer", () => ({
   default: () => ({ mutateAsync: mockStop, isPending: false }),
+}));
+
+const mockUpdateTimeEntry = vi.fn();
+vi.mock("@/hooks/mutations/time-entry/use-update-time-entry", () => ({
+  default: () => ({ mutateAsync: mockUpdateTimeEntry, isPending: false }),
+}));
+
+vi.mock("@/components/providers/auth-provider/hooks/use-auth", () => ({
+  useAuth: () => ({ user: { id: "user-1" }, isLoading: false }),
 }));
 
 vi.mock("@/hooks/use-workspace-permission", () => ({
@@ -232,5 +241,45 @@ describe("TaskTimer", () => {
     // corrente (12:00 -> 12:05) = 700s = 00:11:40. Apenas o trecho corrente
     // avanca; o restante e' estatico.
     expect(screen.getByText("00:11:40")).toBeInTheDocument();
+  });
+
+  it("permite editar o total apontado clicando nele, enviando duration em segundos", async () => {
+    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        userId: "user-1",
+        duration: 3600,
+        runningSince: null,
+        endTime: "2026-08-10T11:00:00.000Z",
+      },
+    ];
+    mockUpdateTimeEntry.mockResolvedValue({});
+
+    render(<TaskTimer taskId="task-1" />);
+
+    fireEvent.click(screen.getByText("tasks:timer.tracked:"));
+
+    const hoursInput = await screen.findByLabelText(
+      "tasks:popover.estimate.hours",
+    );
+    const minutesInput = screen.getByLabelText(
+      "tasks:popover.estimate.minutes",
+    );
+
+    expect(hoursInput).toHaveValue(1);
+    expect(minutesInput).toHaveValue(0);
+
+    fireEvent.change(minutesInput, { target: { value: "30" } });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "tasks:popover.estimate.save" }),
+    );
+
+    expect(mockUpdateTimeEntry).toHaveBeenCalledWith({
+      id: "te-1",
+      duration: 1 * 3600 + 30 * 60,
+    });
   });
 });
