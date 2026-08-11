@@ -87,7 +87,15 @@ describe("TaskTimer", () => {
       ],
       serverTime: "2026-08-10T12:00:00.000Z",
     };
-    timeEntriesData = [];
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        duration: 60,
+        runningSince: "2026-08-10T12:00:00.000Z",
+        endTime: null,
+      },
+    ];
 
     render(<TaskTimer taskId="task-1" />);
 
@@ -108,7 +116,15 @@ describe("TaskTimer", () => {
       ],
       serverTime: "2026-08-10T12:00:00.000Z",
     };
-    timeEntriesData = [];
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        duration: 60,
+        runningSince: null,
+        endTime: null,
+      },
+    ];
 
     render(<TaskTimer taskId="task-1" />);
 
@@ -122,7 +138,8 @@ describe("TaskTimer", () => {
 
     render(<TaskTimer taskId="task-1" compact />);
 
-    expect(screen.getAllByText("00:00:00")).toHaveLength(2);
+    // Um unico numero na tela agora: o total apontado da tarefa.
+    expect(screen.getAllByText("00:00:00")).toHaveLength(1);
     expect(
       screen.getByRole("button", { name: "tasks:timer.start" }),
     ).toBeInTheDocument();
@@ -144,7 +161,15 @@ describe("TaskTimer", () => {
       ],
       serverTime: "2026-08-10T12:00:00.000Z",
     };
-    timeEntriesData = [];
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        duration: 60,
+        runningSince: "2026-08-10T12:00:00.000Z",
+        endTime: null,
+      },
+    ];
 
     render(<TaskTimer taskId="task-1" compact />);
 
@@ -159,7 +184,8 @@ describe("TaskTimer", () => {
 
   it("mostra o total apontado somando entradas fechadas mesmo sem timer ativo", () => {
     // Este e' O CRITERIO DE ACEITE: apos parar o timer (nenhuma entrada
-    // ativa), o tempo ja apontado continua visivel na tarefa.
+    // ativa), o tempo ja apontado continua visivel na tarefa, como o unico
+    // numero exibido.
     activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
     timeEntriesData = [
       {
@@ -180,7 +206,6 @@ describe("TaskTimer", () => {
 
     render(<TaskTimer taskId="task-1" />);
 
-    expect(screen.getByText("tasks:timer.tracked:")).toBeInTheDocument();
     expect(screen.getByText("00:03:20")).toBeInTheDocument();
   });
 
@@ -198,7 +223,6 @@ describe("TaskTimer", () => {
 
     render(<TaskTimer taskId="task-1" compact />);
 
-    expect(screen.getByText("tasks:timer.tracked:")).toBeInTheDocument();
     expect(screen.getByText("00:03:20")).toBeInTheDocument();
   });
 
@@ -259,7 +283,7 @@ describe("TaskTimer", () => {
 
     render(<TaskTimer taskId="task-1" />);
 
-    fireEvent.click(screen.getByText("tasks:timer.tracked:"));
+    fireEvent.click(screen.getByText("01:00:00"));
 
     const hoursInput = await screen.findByLabelText(
       "tasks:popover.estimate.hours",

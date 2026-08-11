@@ -7,7 +7,6 @@ import useStartTimer from "@/hooks/mutations/time-entry/use-start-timer";
 import useStopTimer from "@/hooks/mutations/time-entry/use-stop-timer";
 import useActiveTimers from "@/hooks/queries/time-entry/use-active-timers";
 import useGetTimeEntriesByTaskId from "@/hooks/queries/time-entry/use-get-time-entries";
-import { useElapsedSeconds } from "@/hooks/use-elapsed-seconds";
 import { useTaskTotalTrackedSeconds } from "@/hooks/use-task-total-tracked-seconds";
 import { useWorkspacePermission } from "@/hooks/use-workspace-permission";
 import { toast } from "@/lib/toast";
@@ -50,12 +49,11 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
     ? new Date(data.serverTime).getTime() - Date.now()
     : 0;
 
-  const elapsed = useElapsedSeconds({
-    duration: entry?.duration ?? 0,
-    runningSince: entry?.runningSince ?? null,
-    clockSkewMs,
-  });
-
+  // The single duration shown to the user is the task's tracked total, not a
+  // separate "current session" figure — with one time entry per task now,
+  // those used to be the same number rendered twice. Sourced from the
+  // task's entries query (not `useActiveTimers`) so it keeps showing the
+  // real accumulated time after the entry has been stopped.
   const totalTracked = useTaskTotalTrackedSeconds(timeEntries, clockSkewMs);
 
   if (!canManageTasks()) return null;
@@ -96,7 +94,7 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
           size="sm"
           disabled={isBusy}
           onClick={entry?.isRunning ? handlePause : handleStart}
-          className="justify-start h-7 px-1.5 gap-1.5"
+          className="justify-start h-7 px-1.5"
           aria-label={
             entry?.isRunning
               ? t("tasks:timer.pause")
@@ -110,9 +108,6 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
           ) : (
             <Play className="w-3.5 h-3.5 text-muted-foreground" />
           )}
-          <span className="text-xs font-semibold font-mono tabular-nums">
-            {formatDuration(elapsed)}
-          </span>
         </Button>
 
         {entry && (
@@ -121,7 +116,7 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
             size="sm"
             disabled={isBusy}
             onClick={handleStop}
-            className="justify-start h-7 px-1.5 gap-1.5"
+            className="justify-start h-7 px-1.5"
             aria-label={t("tasks:timer.stop")}
           >
             <Square className="w-3.5 h-3.5 text-muted-foreground" />
@@ -135,13 +130,10 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
         >
           <button
             type="button"
-            className="flex items-center gap-1 text-[11px] text-muted-foreground px-1 cursor-pointer"
-            title={t("tasks:timer.tracked")}
+            className="text-xs font-semibold font-mono tabular-nums text-muted-foreground px-1 cursor-pointer"
+            aria-label={t("tasks:timer.tracked")}
           >
-            <span>{t("tasks:timer.tracked")}:</span>
-            <span className="font-mono tabular-nums">
-              {formatDuration(totalTracked)}
-            </span>
+            {formatDuration(totalTracked)}
           </button>
         </TaskTotalPopover>
       </>
@@ -150,29 +142,6 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
 
   return (
     <div className="flex items-center gap-2">
-      <span
-        className="font-mono text-sm tabular-nums"
-        title={t("tasks:timer.running")}
-      >
-        {formatDuration(elapsed)}
-      </span>
-
-      <TaskTotalPopover
-        taskId={taskId}
-        timeEntryId={myTimeEntryId}
-        trackedSeconds={totalTracked}
-      >
-        <button
-          type="button"
-          className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer"
-        >
-          <span>{t("tasks:timer.tracked")}:</span>
-          <span className="font-mono tabular-nums">
-            {formatDuration(totalTracked)}
-          </span>
-        </button>
-      </TaskTotalPopover>
-
       {entry?.isRunning ? (
         <Button
           size="sm"
@@ -206,6 +175,20 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
           {t("tasks:timer.stop")}
         </Button>
       )}
+
+      <TaskTotalPopover
+        taskId={taskId}
+        timeEntryId={myTimeEntryId}
+        trackedSeconds={totalTracked}
+      >
+        <button
+          type="button"
+          className="font-mono text-sm tabular-nums cursor-pointer"
+          aria-label={t("tasks:timer.tracked")}
+        >
+          {formatDuration(totalTracked)}
+        </button>
+      </TaskTotalPopover>
     </div>
   );
 }
