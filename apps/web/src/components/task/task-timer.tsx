@@ -19,7 +19,12 @@ export function formatDuration(totalSeconds: number) {
     .join(":");
 }
 
-export default function TaskTimer({ taskId }: { taskId: string }) {
+type TaskTimerProps = {
+  taskId: string;
+  compact?: boolean;
+};
+
+export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
   const { t } = useTranslation();
   const { data } = useActiveTimers();
   const { mutateAsync: startTimer, isPending: isStarting } = useStartTimer();
@@ -67,6 +72,49 @@ export default function TaskTimer({ taskId }: { taskId: string }) {
       toast.error(t("tasks:timer.stopError"));
     }
   };
+
+  if (compact) {
+    return (
+      <>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={isBusy}
+          onClick={entry?.isRunning ? handlePause : handleStart}
+          className="justify-start h-7 px-1.5 gap-1.5"
+          aria-label={
+            entry?.isRunning
+              ? t("tasks:timer.pause")
+              : entry
+                ? t("tasks:timer.resume")
+                : t("tasks:timer.start")
+          }
+        >
+          {entry?.isRunning ? (
+            <Pause className="w-3.5 h-3.5 text-muted-foreground" />
+          ) : (
+            <Play className="w-3.5 h-3.5 text-muted-foreground" />
+          )}
+          <span className="text-xs font-semibold font-mono tabular-nums">
+            {formatDuration(elapsed)}
+          </span>
+        </Button>
+
+        {entry && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={isBusy}
+            onClick={handleStop}
+            className="justify-start h-7 px-1.5 gap-1.5"
+            aria-label={t("tasks:timer.stop")}
+          >
+            <Square className="w-3.5 h-3.5 text-muted-foreground" />
+          </Button>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2">

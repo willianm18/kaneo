@@ -337,6 +337,43 @@ export default function TaskPropertiesSidebar({
                   </Button>
                 </TaskDueDatePopover>
               )}
+              {task && (
+                <TaskCompletedAtPopover task={task}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-start h-7 px-1.5 gap-1.5"
+                  >
+                    <CalendarCheck className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span
+                      className={`text-xs font-semibold ${task.completedAt ? "" : "text-muted-foreground"}`}
+                    >
+                      {task.completedAt
+                        ? formatDateShort(task.completedAt)
+                        : t("tasks:popover.completedAt.empty")}
+                    </span>
+                  </Button>
+                </TaskCompletedAtPopover>
+              )}
+              {task && (
+                <TaskEstimatePopover task={task}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-start h-7 px-1.5 gap-1.5"
+                  >
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span
+                      className={`text-xs font-semibold ${task.estimatedSeconds ? "" : "text-muted-foreground"}`}
+                    >
+                      {task.estimatedSeconds
+                        ? formatEstimate(task.estimatedSeconds)
+                        : t("tasks:popover.estimate.label")}
+                    </span>
+                  </Button>
+                </TaskEstimatePopover>
+              )}
+              {task && <TaskTimer taskId={task.id} compact />}
             </div>
           </div>
         )}
@@ -528,6 +565,43 @@ export default function TaskPropertiesSidebar({
                     </Button>
                   </TaskDueDatePopover>
                 )}
+                {task && (
+                  <TaskCompletedAtPopover task={task}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start h-7 px-1.5 gap-1.5"
+                    >
+                      <CalendarCheck className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span
+                        className={`text-xs font-semibold ${task.completedAt ? "" : "text-muted-foreground"}`}
+                      >
+                        {task.completedAt
+                          ? formatDateShort(task.completedAt)
+                          : t("tasks:popover.completedAt.empty")}
+                      </span>
+                    </Button>
+                  </TaskCompletedAtPopover>
+                )}
+                {task && (
+                  <TaskEstimatePopover task={task}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start h-7 px-1.5 gap-1.5"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span
+                        className={`text-xs font-semibold ${task.estimatedSeconds ? "" : "text-muted-foreground"}`}
+                      >
+                        {task.estimatedSeconds
+                          ? formatEstimate(task.estimatedSeconds)
+                          : t("tasks:popover.estimate.label")}
+                      </span>
+                    </Button>
+                  </TaskEstimatePopover>
+                )}
+                {task && <TaskTimer taskId={task.id} compact />}
               </div>
             </div>
 

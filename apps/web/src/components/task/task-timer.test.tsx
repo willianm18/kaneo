@@ -97,4 +97,43 @@ describe("TaskTimer", () => {
     expect(screen.getByText("tasks:timer.resume")).toBeInTheDocument();
     expect(screen.getByText("00:01:00")).toBeInTheDocument();
   });
+
+  it("modo compacto mostra apenas o cronometro e iniciar quando nao ha entrada aberta", () => {
+    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
+
+    render(<TaskTimer taskId="task-1" compact />);
+
+    expect(screen.getByText("00:00:00")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "tasks:timer.start" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "tasks:timer.stop" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("modo compacto mostra encerrar quando a entrada esta rodando", () => {
+    activeData = {
+      entries: [
+        {
+          id: "te-1",
+          taskId: "task-1",
+          duration: 60,
+          runningSince: "2026-08-10T12:00:00.000Z",
+          isRunning: true,
+        },
+      ],
+      serverTime: "2026-08-10T12:00:00.000Z",
+    };
+
+    render(<TaskTimer taskId="task-1" compact />);
+
+    expect(screen.getByText("00:01:00")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "tasks:timer.pause" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "tasks:timer.stop" }),
+    ).toBeInTheDocument();
+  });
 });
