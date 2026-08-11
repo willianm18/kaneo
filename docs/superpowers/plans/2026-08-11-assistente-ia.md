@@ -930,12 +930,18 @@ Crie `apps/web/src/components/assistant/assistant-chat.tsx`. Requisitos concreto
 - Enquanto a mutação está pendente, exibir `assistant.thinking`.
 - Quando a resposta trouxer `pendingConfirmation`, renderizar um bloco com `assistant.confirmTitle`, a `description` recebida, e os botões `assistant.confirm` / `assistant.cancel`.
 
-  **Guarde também o `conversationState` que vem junto.** Confirmar reenvia com
-  `confirmations: [toolCallId]` **e** `resumeFrom: conversationState`. Isso é obrigatório, não
-  detalhe: sem devolver o estado, o modelo re-deriva a exclusão e recebe um id novo, que nunca
-  vai bater com a confirmação — a exclusão jamais executaria, e as ferramentas benignas já
-  executadas rodariam de novo, duplicando tarefas. Foi um defeito encontrado em revisão e
-  corrigido no laço; o front precisa fazer a sua parte do contrato.
+  **Guarde também o `conversationState` E o `conversationSignature` que vêm junto.** Confirmar
+  reenvia com `confirmations: [toolCallId]`, `resumeFrom: conversationState` **e**
+  `conversationSignature`. Os três são obrigatórios:
+
+  - sem `resumeFrom`, o modelo re-deriva a exclusão e recebe um id novo, que nunca bate com a
+    confirmação — a exclusão jamais executaria, e ferramentas benignas já executadas rodariam
+    de novo, duplicando tarefas;
+  - sem `conversationSignature`, o servidor rejeita com 400, porque o estado é assinado
+    (HMAC) justamente para que ninguém possa forjar uma exclusão pré-confirmada.
+
+  Ambos vieram de defeitos encontrados em revisão. O front precisa cumprir sua parte do
+  contrato: devolver os três campos intactos, sem interpretar nem reordenar o estado.
 
   Cancelar apenas descarta o bloco e o estado guardado.
 - Quando a resposta trouxer `actions`, listar cada uma abaixo da mensagem.
@@ -949,9 +955,10 @@ Crie `apps/web/src/components/assistant/assistant-chat.test.tsx`, mockando `use-
 
 1. Digitar e enviar exibe a resposta do assistente.
 2. Uma resposta com `pendingConfirmation` renderiza o bloco de confirmação e **não** mostra resposta final.
-3. Clicar em confirmar chama a mutação de novo incluindo `confirmations` com o `toolCallId`
-   recebido **e** `resumeFrom` com o `conversationState` recebido. Asserte os dois: só o
-   `toolCallId` não basta, e essa é exatamente a falha que a revisão pegou no backend.
+3. Clicar em confirmar chama a mutação de novo incluindo os **três** campos: `confirmations`
+   com o `toolCallId`, `resumeFrom` com o `conversationState`, e `conversationSignature`.
+   Asserte os três — faltar qualquer um quebra o fluxo (o `toolCallId` sozinho nunca casa, e
+   sem a assinatura o servidor responde 400).
 
 Run: `pnpm --filter @kaneo/web exec vitest run src/components/assistant/`
 Expected: PASS.
