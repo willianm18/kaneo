@@ -52,6 +52,7 @@ describe("updateTimeEntry", () => {
           startTime: storedStartTime,
           endTime: storedEndTime,
           duration: 3600,
+          runningSince: null,
         },
       ]),
     );
@@ -93,6 +94,41 @@ describe("updateTimeEntry", () => {
       startTime: new Date("2026-08-10T10:30:00.000Z"),
     });
 
+    expect(updateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ duration: 1800 }),
+    );
+  });
+
+  // LIMITACAO CONHECIDA (ver comentario acima de `wasTimed` em
+  // update-time-entry.ts): a heuristica nao distingue uma entrada realmente
+  // cronometrada de uma entrada manual ja editada uma vez. Este teste fixa o
+  // comportamento aceito hoje — nao "conserte" sem antes ler a justificativa.
+  it("LIMITACAO CONHECIDA: segunda edicao de entrada manual preserva o duration obsoleto", async () => {
+    const updatedRow = { id: "time-entry-1" };
+    const updateChain = makeUpdateMock(updatedRow);
+
+    mockSelect.mockReturnValue(
+      makeSelectMock([
+        {
+          id: "time-entry-1",
+          startTime: new Date("2026-08-10T10:00:00.000Z"),
+          endTime: new Date("2026-08-10T11:00:00.000Z"),
+          // Nunca foi cronometrada (runningSince null), mas ja foi editada
+          // manualmente uma vez, entao duration ja esta persistido como > 0.
+          duration: 1800,
+          runningSince: null,
+        },
+      ]),
+    );
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTimeEntry({
+      timeEntryId: "time-entry-1",
+      startTime: new Date("2026-08-10T10:15:00.000Z"),
+    });
+
+    // O intervalo novo (10:15-11:00) recalcularia para 2700s, mas a heuristica
+    // classifica a entrada como "cronometrada" e preserva o valor obsoleto.
     expect(updateChain.set).toHaveBeenCalledWith(
       expect.objectContaining({ duration: 1800 }),
     );
