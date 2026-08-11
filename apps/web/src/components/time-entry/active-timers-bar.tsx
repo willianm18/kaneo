@@ -76,12 +76,12 @@ function ActiveTimerRow({ entry, clockSkewMs }: ActiveTimerRowProps) {
       />
 
       <Link
-        to="/dashboard/workspace/$workspaceId/project/$projectId/task/$taskId"
+        to="/dashboard/workspace/$workspaceId/project/$projectId/board"
         params={{
           workspaceId: entry.workspaceId,
           projectId: entry.projectId,
-          taskId: entry.taskId,
         }}
+        search={{ taskId: entry.taskId }}
         className="max-w-40 truncate text-sm hover:underline"
       >
         {entry.taskTitle}
