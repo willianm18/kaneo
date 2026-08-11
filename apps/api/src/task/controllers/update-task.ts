@@ -6,25 +6,44 @@ import { publishEvent } from "../../events";
 import { deleteOrphanedAssets } from "../../storage/cleanup-assets";
 import { assertValidTaskStatus } from "../validate-task-fields";
 
-async function updateTask(
-  id: string,
-  title: string,
-  status: string,
-  startDate: Date | undefined,
-  dueDate: Date | undefined,
-  projectId: string,
-  description: string,
-  priority: string,
-  position: number,
-  userId?: string,
-  currentUserId?: string,
-) {
+type UpdateTaskParams = {
+  id: string;
+  title: string;
+  status: string;
+  startDate?: Date;
+  dueDate?: Date;
+  projectId: string;
+  description: string;
+  priority: string;
+  position: number;
+  userId?: string;
+  currentUserId?: string;
+  completedAt?: Date | null;
+  estimatedSeconds?: number | null;
+};
+
+async function updateTask({
+  id,
+  title,
+  status,
+  startDate,
+  dueDate,
+  projectId,
+  description,
+  priority,
+  position,
+  userId,
+  currentUserId,
+  completedAt,
+  estimatedSeconds,
+}: UpdateTaskParams) {
   const [existingTask] = await db
     .select({
       id: taskTable.id,
       description: taskTable.description,
       status: taskTable.status,
       projectId: taskTable.projectId,
+      completedAt: taskTable.completedAt,
     })
     .from(taskTable)
     .where(eq(taskTable.id, id))
@@ -51,6 +70,42 @@ async function updateTask(
     ),
   });
 
+  if (completedAt && Number.isNaN(completedAt.getTime())) {
+    throw new HTTPException(400, {
+      message: "Invalid completion date",
+    });
+  }
+
+  if (completedAt && completedAt.getTime() > Date.now()) {
+    throw new HTTPException(400, {
+      message: "Completion date cannot be in the future",
+    });
+  }
+
+  if (
+    estimatedSeconds !== undefined &&
+    estimatedSeconds !== null &&
+    estimatedSeconds < 0
+  ) {
+    throw new HTTPException(400, {
+      message: "Estimate cannot be negative",
+    });
+  }
+
+  const wasDone = existingTask.status === "done";
+  const isDone = status === "done";
+
+  let resolvedCompletedAt: Date | null;
+  if (completedAt !== undefined) {
+    resolvedCompletedAt = completedAt;
+  } else if (isDone) {
+    resolvedCompletedAt = existingTask.completedAt ?? new Date();
+  } else if (wasDone) {
+    resolvedCompletedAt = null;
+  } else {
+    resolvedCompletedAt = existingTask.completedAt ?? null;
+  }
+
   const [updatedTask] = await db
     .update(taskTable)
     .set({
@@ -64,6 +119,8 @@ async function updateTask(
       priority,
       position,
       userId: userId || null,
+      completedAt: resolvedCompletedAt,
+      ...(estimatedSeconds !== undefined && { estimatedSeconds }),
     })
     .where(eq(taskTable.id, id))
     .returning();

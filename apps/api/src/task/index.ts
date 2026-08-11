@@ -342,6 +342,8 @@ const task = new Hono<{
         projectId: v.string(),
         position: v.number(),
         userId: v.optional(v.string()),
+        completedAt: v.optional(v.nullable(v.string())),
+        estimatedSeconds: v.optional(v.nullable(v.number())),
       }),
     ),
     workspaceAccess.fromTask(),
@@ -360,6 +362,8 @@ const task = new Hono<{
         projectId,
         position,
         userId,
+        completedAt,
+        estimatedSeconds,
       } = c.req.valid("json");
 
       const currentUserId = c.get("userId");
@@ -375,19 +379,28 @@ const task = new Hono<{
 
       validateDateRange(parsedStartDate, parsedDueDate);
 
-      const task = await updateTask(
+      const parsedCompletedAt =
+        completedAt === undefined
+          ? undefined
+          : completedAt === null
+            ? null
+            : validateAndParseDate(completedAt, "completedAt");
+
+      const task = await updateTask({
         id,
         title,
         status,
-        parsedStartDate,
-        parsedDueDate,
+        startDate: parsedStartDate,
+        dueDate: parsedDueDate,
         projectId,
         description,
         priority,
         position,
         userId,
         currentUserId,
-      );
+        completedAt: parsedCompletedAt,
+        estimatedSeconds,
+      });
 
       return c.json(task);
     },
