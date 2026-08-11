@@ -6,7 +6,18 @@ type UpdateTaskPriority = InferRequestType<
   (typeof client)["task"][":id"]["$put"]
 >["json"]["priority"];
 
-async function updateTask(taskId: string, task: Task) {
+/**
+ * Dedicated single-field update for completedAt.
+ *
+ * This intentionally does NOT reuse the generic `updateTask` fetcher: that
+ * fetcher is shared by status-changing flows (kanban/list-view drag,
+ * backlog, archive) which must NOT send `completedAt` explicitly, since the
+ * API only auto-fills/clears completedAt on a status transition when the
+ * field is omitted from the payload — an explicit value (even the current
+ * `null`) always wins and would silently defeat that auto-behavior.
+ * This popover, by contrast, always wants its explicit value to win.
+ */
+async function updateTaskCompletedAt(taskId: string, task: Task) {
   const response = await client.task[":id"].$put({
     param: { id: taskId },
     json: {
@@ -19,7 +30,7 @@ async function updateTask(taskId: string, task: Task) {
       dueDate: task.dueDate?.toString(),
       position: task.position ?? 0,
       projectId: task.projectId,
-      estimatedSeconds: task.estimatedSeconds,
+      completedAt: task.completedAt,
     },
   });
 
@@ -33,4 +44,4 @@ async function updateTask(taskId: string, task: Task) {
   return data;
 }
 
-export default updateTask;
+export default updateTaskCompletedAt;

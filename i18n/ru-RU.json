@@ -1759,6 +1759,23 @@
 					"rose": "Роза",
 					"crimson": "Малиновый"
 				}
+			},
+			"completedAt": {
+				"clear": "Clear completion date",
+				"empty": "Not completed",
+				"futureError": "Completion date cannot be in the future",
+				"label": "Completed at",
+				"updateError": "Failed to update task completion date",
+				"updateSuccess": "Task completion date updated successfully"
+			},
+			"estimate": {
+				"clear": "Clear estimate",
+				"hours": "Hours",
+				"label": "Estimate",
+				"minutes": "Minutes",
+				"save": "Save",
+				"updateError": "Failed to update task estimate",
+				"updateSuccess": "Task estimate updated successfully"
 			}
 		},
 		"backlog": {

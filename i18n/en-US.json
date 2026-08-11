@@ -1732,6 +1732,23 @@
 				"updateError": "Failed to update task start date",
 				"clear": "Clear start date"
 			},
+			"completedAt": {
+				"label": "Completed at",
+				"empty": "Not completed",
+				"updateSuccess": "Task completion date updated successfully",
+				"updateError": "Failed to update task completion date",
+				"clear": "Clear completion date",
+				"futureError": "Completion date cannot be in the future"
+			},
+			"estimate": {
+				"label": "Estimate",
+				"hours": "Hours",
+				"minutes": "Minutes",
+				"save": "Save",
+				"clear": "Clear estimate",
+				"updateSuccess": "Task estimate updated successfully",
+				"updateError": "Failed to update task estimate"
+			},
 			"labels": {
 				"searchPlaceholder": "Search labels...",
 				"empty": "No labels found",

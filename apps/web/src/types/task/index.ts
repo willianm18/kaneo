@@ -24,6 +24,8 @@ type Task = {
   priority: string | null;
   startDate: string | null;
   dueDate: string | null;
+  completedAt: string | null;
+  estimatedSeconds: number | null;
   position: number | null;
   createdAt: string;
   updatedAt?: string;

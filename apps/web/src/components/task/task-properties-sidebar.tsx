@@ -1,8 +1,10 @@
 import {
   Calendar,
+  CalendarCheck,
   CalendarClock,
   CalendarDays,
   CalendarX,
+  Clock,
   Copy,
   GitBranch,
   Plus,
@@ -40,13 +42,23 @@ import { getPriorityLabel, getStatusDisplayLabel } from "@/lib/i18n/domain";
 import { getPriorityIcon } from "@/lib/priority";
 import { toast } from "@/lib/toast";
 import TaskAssigneePopover from "./task-assignee-popover";
+import TaskCompletedAtPopover from "./task-completed-at-popover";
 import TaskDueDatePopover from "./task-due-date-popover";
+import TaskEstimatePopover from "./task-estimate-popover";
 import TaskLabelsPopover from "./task-labels-popover";
 import TaskMovePopover from "./task-move-popover";
 import TaskPriorityPopover from "./task-priority-popover";
 import TaskStartDatePopover from "./task-start-date-popover";
 import TaskStatusPopover from "./task-status-popover";
 import TaskTimer from "./task-timer";
+
+function formatEstimate(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours && minutes) return `${hours}h ${minutes}m`;
+  if (hours) return `${hours}h`;
+  return `${minutes}m`;
+}
 
 function slugify(text: string | undefined): string {
   if (!text) return "";
@@ -708,6 +720,42 @@ export default function TaskPropertiesSidebar({
                       )}
                     </Button>
                   </TaskDueDatePopover>
+                )}
+                {task && (
+                  <TaskCompletedAtPopover task={task}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start h-7 px-1.5 gap-1.5 w-full"
+                    >
+                      <CalendarCheck className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span
+                        className={`text-xs font-semibold ${task.completedAt ? "" : "text-muted-foreground"}`}
+                      >
+                        {task.completedAt
+                          ? formatDateShort(task.completedAt)
+                          : t("tasks:popover.completedAt.empty")}
+                      </span>
+                    </Button>
+                  </TaskCompletedAtPopover>
+                )}
+                {task && (
+                  <TaskEstimatePopover task={task}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start h-7 px-1.5 gap-1.5 w-full"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span
+                        className={`text-xs font-semibold ${task.estimatedSeconds ? "" : "text-muted-foreground"}`}
+                      >
+                        {task.estimatedSeconds
+                          ? formatEstimate(task.estimatedSeconds)
+                          : t("tasks:popover.estimate.label")}
+                      </span>
+                    </Button>
+                  </TaskEstimatePopover>
                 )}
                 {task && (
                   <div className="px-1.5">

@@ -6843,6 +6843,74 @@
 							},
 							"required": ["updateSuccess", "updateError", "clear"]
 						},
+						"completedAt": {
+							"type": "object",
+							"additionalProperties": false,
+							"properties": {
+								"label": {
+									"type": "string"
+								},
+								"empty": {
+									"type": "string"
+								},
+								"updateSuccess": {
+									"type": "string"
+								},
+								"updateError": {
+									"type": "string"
+								},
+								"clear": {
+									"type": "string"
+								},
+								"futureError": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"label",
+								"empty",
+								"updateSuccess",
+								"updateError",
+								"clear",
+								"futureError"
+							]
+						},
+						"estimate": {
+							"type": "object",
+							"additionalProperties": false,
+							"properties": {
+								"label": {
+									"type": "string"
+								},
+								"hours": {
+									"type": "string"
+								},
+								"minutes": {
+									"type": "string"
+								},
+								"save": {
+									"type": "string"
+								},
+								"clear": {
+									"type": "string"
+								},
+								"updateSuccess": {
+									"type": "string"
+								},
+								"updateError": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"label",
+								"hours",
+								"minutes",
+								"save",
+								"clear",
+								"updateSuccess",
+								"updateError"
+							]
+						},
 						"labels": {
 							"type": "object",
 							"additionalProperties": false,
@@ -6939,6 +7007,8 @@
 						"priority",
 						"dueDate",
 						"startDate",
+						"completedAt",
+						"estimate",
 						"labels"
 					]
 				},
