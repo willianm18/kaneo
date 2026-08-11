@@ -59,8 +59,15 @@ não há tabela nova, migração, tela de histórico nem texto livre da equipe a
 **Modelo configurável por variável de ambiente**, com padrão barato. Trocar de modelo não deve
 exigir alterar código e refazer deploy, justamente na fase de descobrir qual funciona melhor.
 
-**Botão flutuante no canto** como superfície. A alternativa era um painel lateral com mais
-espaço para listas de resultado; o usuário preferiu a bolha, padrão que a equipe reconhece.
+**Duas superfícies para a mesma conversa: bolha e painel, alternáveis por um botão.** A
+primeira escolha foi só a bolha, pelo padrão que a equipe reconhece; ao pesar contra o painel
+lateral — melhor para listas de resultado — decidiu-se ter os dois, porque servem a momentos
+diferentes: a bolha para "abre um chamado" (rápido e pontual), o painel para "o que vence essa
+semana" (lista que precisa de espaço).
+
+O custo disso é baixo **sob uma condição, que é obrigatória**: existe UM único componente de
+conversa, e os dois modos são apenas invólucros ao redor dele. Duas implementações de chat
+seriam manutenção duplicada e estão explicitamente proibidas neste design.
 
 ## Fora de escopo
 
@@ -142,12 +149,19 @@ A confirmação vive no protocolo, não na disciplina do cliente.
 
 ## Frontend
 
-**`AssistantBubble`** — botão flutuante no canto inferior direito, presente no layout
-autenticado. Só é renderizado quando a instância tem o assistente habilitado.
+**`AssistantChat`** — o componente de conversa, e a **única** implementação dela: mensagens,
+campo de envio, e as ações executadas como linhas com link para a tarefa criada ou alterada.
+Envia `workspaceId` e `projectId` da rota atual, para que "abre um chamado" caia no projeto que
+o usuário está vendo. Não sabe onde está montado.
 
-**`AssistantChat`** — janela de conversa: mensagens, campo de envio, e as ações executadas
-como linhas com link para a tarefa criada ou alterada. Envia `workspaceId` e `projectId` da
-rota atual, para que "abre um chamado" caia no projeto que o usuário está vendo.
+**`AssistantLauncher`** — botão flutuante no canto inferior direito, presente no layout
+autenticado. Só é renderizado quando a instância tem o assistente habilitado. Abre a conversa
+no modo atual.
+
+**Dois modos, um componente.** A conversa é exibida como bolha no canto ou como painel lateral,
+e um botão no cabeçalho da janela alterna entre eles. Ambos renderizam o mesmo `AssistantChat`
+— trocar de modo não recria a conversa nem perde o que já foi digitado. O modo escolhido é
+lembrado em `localStorage`; nada vai para o banco.
 
 Quando a resposta traz `pendingConfirmation`, a janela mostra a descrição com os botões
 confirmar e cancelar. Confirmar reenvia a conversa autorizando; cancelar apenas descarta.
@@ -203,6 +217,9 @@ Com a OpenRouter mockada, em `tests/api/assistant/`:
 
 Teste de componente do `AssistantChat` cobrindo o fluxo de confirmação, no padrão de
 `task-timer.test.tsx` (com `afterEach(cleanup)`, pois este projeto não limpa automaticamente).
+
+Um teste deve provar que **alternar entre bolha e painel preserva a conversa** — é a garantia
+de que existe mesmo um único componente sendo reposicionado, e não dois chats paralelos.
 
 ## Entrega
 
