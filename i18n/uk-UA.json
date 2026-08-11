@@ -2156,6 +2156,10 @@
 		"placeholder": "Message the assistant…",
 		"send": "Send",
 		"thinking": "Thinking…",
-		"viewTask": "View task"
+		"viewTask": "View task",
+		"close": "Close",
+		"collapse": "Collapse",
+		"expand": "Expand",
+		"open": "Open assistant"
 	}
 }

@@ -2141,6 +2141,10 @@
 		"confirm": "Confirmar",
 		"cancel": "Cancelar",
 		"actionsTitle": "Ações executadas",
-		"viewTask": "Ver tarefa"
+		"viewTask": "Ver tarefa",
+		"open": "Abrir assistente",
+		"expand": "Expandir",
+		"collapse": "Recolher",
+		"close": "Fechar"
 	}
 }

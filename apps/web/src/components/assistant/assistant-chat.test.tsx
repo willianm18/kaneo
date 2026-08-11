@@ -2,13 +2,17 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AssistantChat from "./assistant-chat";
+import AssistantLauncher from "./assistant-launcher";
 
 const mockMutateAsync = vi.fn();
+const mockUseGetConfig = vi.fn();
 
 afterEach(() => {
   cleanup();
   document.body.innerHTML = "";
+  window.localStorage.clear();
   mockMutateAsync.mockReset();
+  mockUseGetConfig.mockReset();
 });
 
 vi.mock("react-i18next", () => ({
@@ -17,10 +21,15 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a>,
+  useParams: () => ({}),
 }));
 
 vi.mock("@/hooks/mutations/assistant/use-send-assistant-message", () => ({
   default: () => ({ mutateAsync: mockMutateAsync, isPending: false }),
+}));
+
+vi.mock("@/hooks/queries/config/use-get-config", () => ({
+  default: () => mockUseGetConfig(),
 }));
 
 async function typeAndSend(text: string) {
@@ -197,5 +206,59 @@ describe("AssistantChat", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("create_task")).toBeInTheDocument();
     expect(screen.getByText("assistant:viewTask")).toBeInTheDocument();
+  });
+});
+
+describe("AssistantLauncher", () => {
+  it("nao renderiza nada quando o assistente esta desabilitado", () => {
+    mockUseGetConfig.mockReturnValue({ data: { hasAssistant: false } });
+
+    const { container } = render(<AssistantLauncher />);
+
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByLabelText("assistant:open")).not.toBeInTheDocument();
+  });
+
+  it("alternar entre bolha e painel preserva a conversa (mesma instancia de AssistantChat)", async () => {
+    mockUseGetConfig.mockReturnValue({ data: { hasAssistant: true } });
+    mockMutateAsync.mockResolvedValue({
+      reply: "Resposta preservada apos alternar o modo.",
+      actions: [],
+    });
+
+    render(<AssistantLauncher />);
+
+    fireEvent.click(screen.getByLabelText("assistant:open"));
+
+    await typeAndSend("Mensagem que deve sobreviver a troca de modo");
+
+    expect(
+      await screen.findByText("Resposta preservada apos alternar o modo."),
+    ).toBeInTheDocument();
+
+    // Modo inicial e "bolha": o botao do cabecalho oferece expandir para o
+    // painel.
+    fireEvent.click(screen.getByLabelText("assistant:expand"));
+
+    // Se AssistantChat tivesse sido desmontado e remontado ao trocar de
+    // wrapper, a conversa teria sido reiniciada e estas mensagens teriam
+    // desaparecido.
+    expect(
+      screen.getByText("Mensagem que deve sobreviver a troca de modo"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Resposta preservada apos alternar o modo."),
+    ).toBeInTheDocument();
+
+    // O cabecalho agora oferece recolher de volta para a bolha, confirmando
+    // que o modo realmente mudou para "painel".
+    expect(screen.getByLabelText("assistant:collapse")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("assistant:collapse"));
+
+    expect(
+      screen.getByText("Mensagem que deve sobreviver a troca de modo"),
+    ).toBeInTheDocument();
+    expect(mockMutateAsync).toHaveBeenCalledTimes(1);
   });
 });

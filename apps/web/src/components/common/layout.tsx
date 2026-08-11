@@ -1,6 +1,7 @@
 import type React from "react";
 import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import AssistantLauncher from "@/components/assistant/assistant-launcher";
 import { DemoAlert } from "@/components/demo-alert";
 import ActiveTimersBar from "@/components/time-entry/active-timers-bar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -70,6 +71,7 @@ function Layout({ children, className }: LayoutProps) {
         >
           {isDemoMode && <DemoAlert />}
           <ActiveTimersBar />
+          <AssistantLauncher />
           {children}
         </SidebarInset>
       </SidebarProvider>

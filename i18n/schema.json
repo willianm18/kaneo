@@ -8457,6 +8457,18 @@
 				},
 				"viewTask": {
 					"type": "string"
+				},
+				"open": {
+					"type": "string"
+				},
+				"expand": {
+					"type": "string"
+				},
+				"collapse": {
+					"type": "string"
+				},
+				"close": {
+					"type": "string"
 				}
 			},
 			"required": [
@@ -8469,7 +8481,11 @@
 				"confirm",
 				"cancel",
 				"actionsTitle",
-				"viewTask"
+				"viewTask",
+				"open",
+				"expand",
+				"collapse",
+				"close"
 			]
 		}
 	},
