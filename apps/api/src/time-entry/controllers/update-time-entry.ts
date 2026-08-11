@@ -33,11 +33,17 @@ async function updateTimeEntry(params: UpdateTimeEntryParams) {
     });
   }
 
-  let duration: number | null = null;
-  if (effectiveEndTime) {
+  // O timer mantem `duration` como acumulado autoritativo em segundos, entao so
+  // recalculamos a partir do intervalo quando a entrada nunca foi cronometrada.
+  const wasTimed =
+    existingTimeEntry.runningSince !== null ||
+    (existingTimeEntry.duration ?? 0) > 0;
+
+  let duration: number | null = existingTimeEntry.duration ?? null;
+  if (!wasTimed && effectiveEndTime) {
     duration = Math.floor(
       (effectiveEndTime.getTime() - startTime.getTime()) / 1000,
-    ); // duration in seconds
+    );
   }
 
   const [updatedTimeEntry] = await db

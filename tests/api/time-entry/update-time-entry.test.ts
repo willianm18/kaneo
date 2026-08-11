@@ -32,7 +32,7 @@ describe("updateTimeEntry", () => {
     vi.resetAllMocks();
   });
 
-  it("preserves a stored endTime and duration when endTime is omitted", async () => {
+  it("preserva o acumulado de uma entrada cronometrada", async () => {
     const storedStartTime = new Date("2026-08-10T10:00:00.000Z");
     const storedEndTime = new Date("2026-08-10T11:00:00.000Z");
     const nextStartTime = new Date("2026-08-10T10:15:00.000Z");
@@ -40,7 +40,7 @@ describe("updateTimeEntry", () => {
       id: "time-entry-1",
       startTime: nextStartTime,
       endTime: storedEndTime,
-      duration: 2700,
+      duration: 3600,
       description: "renamed",
     };
     const updateChain = makeUpdateMock(updatedRow);
@@ -66,9 +66,36 @@ describe("updateTimeEntry", () => {
     expect(updateChain.set).toHaveBeenCalledWith({
       startTime: nextStartTime,
       endTime: storedEndTime,
-      duration: 2700,
+      duration: 3600,
       description: "renamed",
     });
+  });
+
+  it("recalcula duration para uma entrada manual nunca cronometrada", async () => {
+    const updatedRow = { id: "time-entry-1" };
+    const updateChain = makeUpdateMock(updatedRow);
+
+    mockSelect.mockReturnValue(
+      makeSelectMock([
+        {
+          id: "time-entry-1",
+          startTime: new Date("2026-08-10T10:00:00.000Z"),
+          endTime: new Date("2026-08-10T11:00:00.000Z"),
+          duration: 0,
+          runningSince: null,
+        },
+      ]),
+    );
+    mockUpdate.mockReturnValue(updateChain);
+
+    await updateTimeEntry({
+      timeEntryId: "time-entry-1",
+      startTime: new Date("2026-08-10T10:30:00.000Z"),
+    });
+
+    expect(updateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ duration: 1800 }),
+    );
   });
 
   it("rejects a startTime later than the preserved endTime", async () => {

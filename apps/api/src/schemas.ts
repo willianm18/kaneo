@@ -76,8 +76,25 @@ export const timeEntrySchema = v.object({
   startTime: v.date(),
   endTime: v.optional(v.date()),
   duration: v.nullable(v.number()),
+  runningSince: v.nullable(v.date()),
   createdAt: v.date(),
   updatedAt: v.date(),
+});
+
+export const activeTimerSchema = v.object({
+  id: v.string(),
+  taskId: v.string(),
+  taskTitle: v.string(),
+  projectId: v.string(),
+  workspaceId: v.string(),
+  duration: v.nullable(v.number()),
+  runningSince: v.nullable(v.date()),
+  isRunning: v.boolean(),
+});
+
+export const activeTimersResponseSchema = v.object({
+  entries: v.array(activeTimerSchema),
+  serverTime: v.string(),
 });
 
 export const notificationSchema = v.object({
