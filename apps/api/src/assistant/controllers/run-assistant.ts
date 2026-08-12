@@ -50,6 +50,7 @@ export type AssistantResult = {
 export function buildSystemPrompt(
   workspaceId?: string,
   projectId?: string,
+  now: Date = new Date(),
 ): string {
   const context = [
     workspaceId ? `Current workspace id: ${workspaceId}.` : null,
@@ -66,6 +67,9 @@ export function buildSystemPrompt(
     "Standard status slugs are to-do, planned, in-progress, in-review, done, archived, but columns are customizable per project and may use different slugs. Never guess or translate a status string. When the user names a column or status (in any language, e.g. 'em andamento', 'to do', 'review'), call list_project_columns for the current project first and use the exact slug it returns. 'Em aberto'/'open' is not a status: it means every task whose column is not final (isFinal), i.e. everything except done/archived-type columns.",
     "A reference like 'verify-proj-5' is <project-slug>-<task number>, not a task title or free text. Resolve it by listing the tasks of that project (list_tasks on the project matching the slug, defaulting to the current project when the slug matches it) and matching the `number` field exactly. Never resolve it by fuzzy-matching a title, and never search across other projects for it.",
     "Do not guess the target of a mutation. If you cannot identify the exact task, project, or column unambiguously, ask a clarifying question instead of acting. Reporting success on the wrong item is worse than asking one question.",
+    `Current date and time: ${now.toISOString()} (ISO 8601, UTC offset). This is computed fresh for this request — trust it over any date you might otherwise recall from training data.`,
+    "Resolve every relative date or time expression ('hoje', 'amanha', 'semana que vem', 'next Friday', 'in 3 days', etc.) against the current date and time above, never against memory or training data. When the user gives a date without a year (e.g. '18/08' or 'March 3rd'), resolve it to the nearest sensible occurrence relative to today: if that day/month has already passed this year, use next year; otherwise use this year. Never invent or default to a year from your training data.",
+    "When reporting the current state of anything (a task's status, due date, estimate, completion date, assignee, comments, etc.), always use the result of the most recent tool call you made earlier in this same turn — never restate a value from an earlier message in the conversation, even one you produced yourself. If you have not looked the value up in this turn (e.g. right after changing it), call the appropriate read tool (get_task, list_tasks, ...) before asserting it, so you report what is actually stored now rather than what you last remembered.",
     "Answer in the same language the user writes in.",
     context,
   ]

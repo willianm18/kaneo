@@ -115,7 +115,7 @@ function formatOptionalIso(value: unknown): string | undefined {
 function buildFullTaskUpdateBody(
   existing: Record<string, unknown>,
   patch: Record<string, unknown>,
-): Record<string, string | number | undefined> {
+): Record<string, string | number | null | undefined> {
   const positionRaw = patch.position ?? existing.position;
   const position =
     typeof positionRaw === "number"
@@ -174,7 +174,7 @@ function buildFullTaskUpdateBody(
     patch.dueDate !== undefined ? patch.dueDate : existing.dueDate,
   );
 
-  const body: Record<string, string | number | undefined> = {
+  const body: Record<string, string | number | null | undefined> = {
     title,
     description,
     status,
@@ -185,6 +185,21 @@ function buildFullTaskUpdateBody(
   if (startDate !== undefined) body.startDate = startDate;
   if (dueDate !== undefined) body.dueDate = dueDate;
   if (userId !== undefined) body.userId = userId;
+  // Only carried when the caller explicitly targets one of these two fields
+  // (set_task_estimate / set_task_completion_date pass them, including an
+  // explicit `null` to clear). `update_task`'s own patch never sets these
+  // keys, so they stay absent there and the API falls back to its own
+  // defaults (auto-resolving completedAt from the status transition,
+  // leaving estimatedSeconds untouched) exactly as before this function
+  // learned about them.
+  if (patch.estimatedSeconds !== undefined) {
+    body.estimatedSeconds =
+      patch.estimatedSeconds === null ? null : Number(patch.estimatedSeconds);
+  }
+  if (patch.completedAt !== undefined) {
+    body.completedAt =
+      patch.completedAt === null ? null : String(patch.completedAt);
+  }
   return body;
 }
 
@@ -1006,6 +1021,74 @@ export function registerMcpTools(
   );
 
   registerTool(
+    "set_task_estimate",
+    {
+      description:
+        "Set a task's time estimate. Takes the estimate in MINUTES (not hours, not seconds) — pass the number of minutes directly and this tool converts it to seconds for the API, so the model never has to do that arithmetic itself. Omit estimateMinutes to clear the estimate. Internally fetches the current task and sends a full update, since the API only accepts this field on the full task update.",
+      inputSchema: z.object({
+        taskId: nonEmptyString,
+        estimateMinutes: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Estimate in minutes (e.g. 90 for 1h30m). Omit to clear the estimate.",
+          ),
+      }),
+    },
+    async (args) => {
+      const { taskId, estimateMinutes } = args;
+      return run(async () => {
+        const existing = (await client.json(
+          `/api/task/${encodeURIComponent(taskId)}`,
+          { method: "GET" },
+        )) as Record<string, unknown>;
+        const body = buildFullTaskUpdateBody(existing, {
+          estimatedSeconds:
+            estimateMinutes === undefined
+              ? null
+              : Math.round(estimateMinutes * 60),
+        });
+        return client.json(`/api/task/${encodeURIComponent(taskId)}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      });
+    },
+  );
+
+  registerTool(
+    "set_task_completion_date",
+    {
+      description:
+        "Set a task's real completion date (completedAt), independent of its column/status. Note: moving a task into a final ('done'-type) column already fills this automatically, so only use this tool to correct that date or to set it explicitly. The server rejects a future date. Omit completedAt to clear it. Internally fetches the current task and sends a full update, since the API only accepts this field on the full task update.",
+      inputSchema: z.object({
+        taskId: nonEmptyString,
+        completedAt: optionalIsoDateTimeSchema.describe(
+          "ISO 8601 datetime, not in the future. Omit to clear the completion date.",
+        ),
+      }),
+    },
+    async (args) => {
+      const { taskId, completedAt } = args;
+      return run(async () => {
+        const existing = (await client.json(
+          `/api/task/${encodeURIComponent(taskId)}`,
+          { method: "GET" },
+        )) as Record<string, unknown>;
+        const body = buildFullTaskUpdateBody(existing, {
+          completedAt: completedAt === undefined ? null : completedAt,
+        });
+        return client.json(`/api/task/${encodeURIComponent(taskId)}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      });
+    },
+  );
+
+  registerTool(
     "list_task_time_entries",
     {
       description: "List the time entries logged against a task.",
@@ -1076,6 +1159,78 @@ export function registerMcpTools(
           }),
         }),
       ),
+  );
+
+  registerTool(
+    "start_task_timer",
+    {
+      description:
+        "Start or resume the running timer for a task, for the current user. There is at most one timer per (task, user): starting again while it is already running just returns it unchanged, and pausing/resuming reuses the same entry rather than creating a new one. Returns the time entry, whose `id` is what pause_task_timer and stop_task_timer need.",
+      inputSchema: z.object({
+        taskId: nonEmptyString,
+        description: optionalNonEmptyString.describe(
+          "Optional note stored on the time entry",
+        ),
+      }),
+    },
+    async (args) =>
+      run(() =>
+        client.json(
+          `/api/time-entry/task/${encodeURIComponent(args.taskId)}/start`,
+          {
+            method: "POST",
+            body: JSON.stringify(
+              args.description !== undefined
+                ? { description: args.description }
+                : {},
+            ),
+          },
+        ),
+      ),
+  );
+
+  registerTool(
+    "pause_task_timer",
+    {
+      description:
+        "Pause a running timer, keeping its accumulated duration so it can be resumed later with start_task_timer. Takes the time entry id (not the task id) — get it from start_task_timer's result or from list_active_timers.",
+      inputSchema: z.object({
+        id: nonEmptyString.describe("Time entry id"),
+      }),
+    },
+    async (args) =>
+      run(() =>
+        client.json(`/api/time-entry/${encodeURIComponent(args.id)}/pause`, {
+          method: "POST",
+        }),
+      ),
+  );
+
+  registerTool(
+    "stop_task_timer",
+    {
+      description:
+        "Stop a timer, closing its time entry with an end time (unlike pause, which just suspends it). There is still at most one time entry per (task, user): calling start_task_timer again on the same task reopens this same entry rather than creating a new one. Takes the time entry id (not the task id) — get it from start_task_timer's result or from list_active_timers.",
+      inputSchema: z.object({
+        id: nonEmptyString.describe("Time entry id"),
+      }),
+    },
+    async (args) =>
+      run(() =>
+        client.json(`/api/time-entry/${encodeURIComponent(args.id)}/stop`, {
+          method: "POST",
+        }),
+      ),
+  );
+
+  registerTool(
+    "list_active_timers",
+    {
+      description:
+        "List the current user's open (running or paused-but-not-stopped) time entries across all tasks, plus the server clock. Use this to find the time entry id a running/paused timer needs for pause_task_timer or stop_task_timer, or to answer 'what timer do I have running'.",
+      inputSchema: z.object({}),
+    },
+    async () => run(() => client.json("/api/time-entry/active")),
   );
 
   registerTool(
