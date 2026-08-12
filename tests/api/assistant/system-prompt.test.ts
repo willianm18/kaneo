@@ -95,4 +95,35 @@ describe("buildSystemPrompt", () => {
       "never restate a value from an earlier message",
     );
   });
+
+  it("instrui a estruturar a descricao do chamado com as tres secoes (por que, para quem, o que)", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain("why it matters");
+    expect(prompt.toLowerCase()).toContain("who it matters to");
+    expect(prompt.toLowerCase()).toContain("what is wanted");
+  });
+
+  it("instrui a criar o chamado imediatamente quando as tres secoes ja estao dadas, sem perguntar nada", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain("create the task immediately");
+    expect(prompt.toLowerCase()).toContain("do not ask anything");
+  });
+
+  it("instrui a fazer no maximo uma pergunta consolidada, nunca uma sequencia de perguntas", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain(
+      "ask exactly one consolidated question",
+    );
+    expect(prompt.toLowerCase()).toContain("one-question-at-a-time");
+  });
+
+  it("proibe texto de placeholder (ex.: 'a definir') em qualquer secao do chamado", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain("placeholder text");
+    expect(prompt).toContain("a definir");
+  });
 });
