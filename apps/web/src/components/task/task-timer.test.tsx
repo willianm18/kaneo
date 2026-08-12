@@ -4,11 +4,6 @@ import TaskTimer, { formatDuration } from "./task-timer";
 
 const mockStart = vi.fn();
 const mockPause = vi.fn();
-const mockStop = vi.fn();
-let activeData: unknown = {
-  entries: [],
-  serverTime: "2026-08-10T12:00:00.000Z",
-};
 let timeEntriesData: unknown = [];
 
 afterEach(() => {
@@ -21,10 +16,6 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock("@/hooks/queries/time-entry/use-active-timers", () => ({
-  default: () => ({ data: activeData }),
-}));
-
 vi.mock("@/hooks/queries/time-entry/use-get-time-entries", () => ({
   default: () => ({ data: timeEntriesData }),
 }));
@@ -35,10 +26,6 @@ vi.mock("@/hooks/mutations/time-entry/use-start-timer", () => ({
 
 vi.mock("@/hooks/mutations/time-entry/use-pause-timer", () => ({
   default: () => ({ mutateAsync: mockPause, isPending: false }),
-}));
-
-vi.mock("@/hooks/mutations/time-entry/use-stop-timer", () => ({
-  default: () => ({ mutateAsync: mockStop, isPending: false }),
 }));
 
 const mockUpdateTimeEntry = vi.fn();
@@ -65,32 +52,20 @@ describe("formatDuration", () => {
 
 describe("TaskTimer", () => {
   it("mostra apenas iniciar quando nao ha entrada aberta", () => {
-    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
     timeEntriesData = [];
 
     render(<TaskTimer taskId="task-1" />);
 
     expect(screen.getByText("tasks:timer.start")).toBeInTheDocument();
-    expect(screen.queryByText("tasks:timer.stop")).not.toBeInTheDocument();
+    expect(screen.queryByText("tasks:timer.pause")).not.toBeInTheDocument();
   });
 
-  it("mostra pausar e encerrar quando a entrada esta rodando", () => {
-    activeData = {
-      entries: [
-        {
-          id: "te-1",
-          taskId: "task-1",
-          duration: 60,
-          runningSince: "2026-08-10T12:00:00.000Z",
-          isRunning: true,
-        },
-      ],
-      serverTime: "2026-08-10T12:00:00.000Z",
-    };
+  it("mostra pausar (unico botao) quando a entrada esta rodando", () => {
     timeEntriesData = [
       {
         id: "te-1",
         taskId: "task-1",
+        userId: "user-1",
         duration: 60,
         runningSince: "2026-08-10T12:00:00.000Z",
         endTime: null,
@@ -100,26 +75,16 @@ describe("TaskTimer", () => {
     render(<TaskTimer taskId="task-1" />);
 
     expect(screen.getByText("tasks:timer.pause")).toBeInTheDocument();
-    expect(screen.getByText("tasks:timer.stop")).toBeInTheDocument();
+    expect(screen.queryByText("tasks:timer.stop")).not.toBeInTheDocument();
+    expect(screen.queryByText("tasks:timer.start")).not.toBeInTheDocument();
   });
 
   it("mostra retomar quando a entrada esta pausada", () => {
-    activeData = {
-      entries: [
-        {
-          id: "te-1",
-          taskId: "task-1",
-          duration: 60,
-          runningSince: null,
-          isRunning: false,
-        },
-      ],
-      serverTime: "2026-08-10T12:00:00.000Z",
-    };
     timeEntriesData = [
       {
         id: "te-1",
         taskId: "task-1",
+        userId: "user-1",
         duration: 60,
         runningSince: null,
         endTime: null,
@@ -132,39 +97,83 @@ describe("TaskTimer", () => {
     expect(screen.getByText("00:01:00")).toBeInTheDocument();
   });
 
-  it("modo compacto mostra apenas o cronometro e iniciar quando nao ha entrada aberta", () => {
-    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
+  it("clicar no botao unico pausa uma entrada rodando", () => {
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        userId: "user-1",
+        duration: 60,
+        runningSince: "2026-08-10T12:00:00.000Z",
+        endTime: null,
+      },
+    ];
+
+    render(<TaskTimer taskId="task-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "tasks:timer.pause" }));
+
+    expect(mockPause).toHaveBeenCalledWith({
+      timeEntryId: "te-1",
+      taskId: "task-1",
+    });
+  });
+
+  it("clicar no botao unico inicia quando nao ha entrada aberta", () => {
     timeEntriesData = [];
 
-    render(<TaskTimer taskId="task-1" compact />);
+    render(<TaskTimer taskId="task-1" />);
 
-    // Um unico numero na tela agora: o total apontado da tarefa.
-    expect(screen.getAllByText("00:00:00")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "tasks:timer.start" }));
+
+    expect(mockStart).toHaveBeenCalledWith({ taskId: "task-1" });
+  });
+
+  it("nao existe mais acao de encerrar (finish) em nenhuma variante", () => {
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        userId: "user-1",
+        duration: 60,
+        runningSince: "2026-08-10T12:00:00.000Z",
+        endTime: null,
+      },
+    ];
+
+    const { rerender } = render(<TaskTimer taskId="task-1" />);
+    expect(screen.queryByText("tasks:timer.stop")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "tasks:timer.start" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "tasks:timer.stop" }),
+    ).not.toBeInTheDocument();
+
+    rerender(<TaskTimer taskId="task-1" compact />);
     expect(
       screen.queryByRole("button", { name: "tasks:timer.stop" }),
     ).not.toBeInTheDocument();
   });
 
-  it("modo compacto mostra encerrar quando a entrada esta rodando", () => {
-    activeData = {
-      entries: [
-        {
-          id: "te-1",
-          taskId: "task-1",
-          duration: 60,
-          runningSince: "2026-08-10T12:00:00.000Z",
-          isRunning: true,
-        },
-      ],
-      serverTime: "2026-08-10T12:00:00.000Z",
-    };
+  it("modo compacto mostra apenas o cronometro e iniciar quando nao ha entrada aberta", () => {
+    timeEntriesData = [];
+
+    render(<TaskTimer taskId="task-1" compact />);
+
+    // Um unico numero na tela: o total apontado da tarefa.
+    expect(screen.getAllByText("00:00:00")).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "tasks:timer.start" }),
+    ).toBeInTheDocument();
+  });
+
+  it("modo compacto mostra pausar quando a entrada esta rodando", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T12:00:00.000Z"));
+
     timeEntriesData = [
       {
         id: "te-1",
         taskId: "task-1",
+        userId: "user-1",
         duration: 60,
         runningSince: "2026-08-10T12:00:00.000Z",
         endTime: null,
@@ -177,20 +186,17 @@ describe("TaskTimer", () => {
     expect(
       screen.getByRole("button", { name: "tasks:timer.pause" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "tasks:timer.stop" }),
-    ).toBeInTheDocument();
   });
 
   it("mostra o total apontado somando entradas fechadas mesmo sem timer ativo", () => {
-    // Este e' O CRITERIO DE ACEITE: apos parar o timer (nenhuma entrada
-    // ativa), o tempo ja apontado continua visivel na tarefa, como o unico
+    // Este e' O CRITERIO DE ACEITE: apos pausar o timer (nenhuma entrada
+    // rodando), o tempo ja apontado continua visivel na tarefa, como o unico
     // numero exibido.
-    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
     timeEntriesData = [
       {
         id: "te-1",
         taskId: "task-1",
+        userId: "user-1",
         duration: 125,
         runningSince: null,
         endTime: "2026-08-10T11:00:00.000Z",
@@ -198,6 +204,7 @@ describe("TaskTimer", () => {
       {
         id: "te-2",
         taskId: "task-1",
+        userId: "user-2",
         duration: 75,
         runningSince: null,
         endTime: "2026-08-10T11:30:00.000Z",
@@ -209,12 +216,12 @@ describe("TaskTimer", () => {
     expect(screen.getByText("00:03:20")).toBeInTheDocument();
   });
 
-  it("modo compacto tambem mostra o total apontado apos parar o timer", () => {
-    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
+  it("modo compacto tambem mostra o total apontado apos pausar o timer", () => {
     timeEntriesData = [
       {
         id: "te-1",
         taskId: "task-1",
+        userId: "user-1",
         duration: 200,
         runningSince: null,
         endTime: "2026-08-10T11:00:00.000Z",
@@ -230,22 +237,11 @@ describe("TaskTimer", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-10T12:05:00.000Z"));
 
-    activeData = {
-      entries: [
-        {
-          id: "te-2",
-          taskId: "task-1",
-          duration: 100,
-          runningSince: "2026-08-10T12:00:00.000Z",
-          isRunning: true,
-        },
-      ],
-      serverTime: "2026-08-10T12:05:00.000Z",
-    };
     timeEntriesData = [
       {
         id: "te-1",
         taskId: "task-1",
+        userId: "user-2",
         duration: 300,
         runningSince: null,
         endTime: "2026-08-10T11:00:00.000Z",
@@ -253,6 +249,7 @@ describe("TaskTimer", () => {
       {
         id: "te-2",
         taskId: "task-1",
+        userId: "user-1",
         duration: 100,
         runningSince: "2026-08-10T12:00:00.000Z",
         endTime: null,
@@ -268,7 +265,6 @@ describe("TaskTimer", () => {
   });
 
   it("permite editar o total apontado clicando nele, enviando duration em segundos", async () => {
-    activeData = { entries: [], serverTime: "2026-08-10T12:00:00.000Z" };
     timeEntriesData = [
       {
         id: "te-1",
@@ -305,5 +301,26 @@ describe("TaskTimer", () => {
       id: "te-1",
       duration: 1 * 3600 + 30 * 60,
     });
+  });
+
+  it("o contador e o total vem da mesma (unica) consulta de dados", () => {
+    // So mockamos useGetTimeEntriesByTaskId — se o componente ainda
+    // dependesse de useActiveTimers para o contador, este teste falharia por
+    // falta de dados (a query nao mockada retornaria undefined).
+    timeEntriesData = [
+      {
+        id: "te-1",
+        taskId: "task-1",
+        userId: "user-1",
+        duration: 42,
+        runningSince: null,
+        endTime: null,
+      },
+    ];
+
+    render(<TaskTimer taskId="task-1" />);
+
+    expect(screen.getByText("tasks:timer.resume")).toBeInTheDocument();
+    expect(screen.getByText("00:00:42")).toBeInTheDocument();
   });
 });

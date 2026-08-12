@@ -1,11 +1,9 @@
-import { Pause, Play, Square } from "lucide-react";
+import { Pause, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/components/providers/auth-provider/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import usePauseTimer from "@/hooks/mutations/time-entry/use-pause-timer";
 import useStartTimer from "@/hooks/mutations/time-entry/use-start-timer";
-import useStopTimer from "@/hooks/mutations/time-entry/use-stop-timer";
-import useActiveTimers from "@/hooks/queries/time-entry/use-active-timers";
 import useGetTimeEntriesByTaskId from "@/hooks/queries/time-entry/use-get-time-entries";
 import { useTaskTotalTrackedSeconds } from "@/hooks/use-task-total-tracked-seconds";
 import { useWorkspacePermission } from "@/hooks/use-workspace-permission";
@@ -30,61 +28,48 @@ type TaskTimerProps = {
 export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const { data } = useActiveTimers();
   const { data: timeEntries } = useGetTimeEntriesByTaskId(taskId);
   const { mutateAsync: startTimer, isPending: isStarting } = useStartTimer();
   const { mutateAsync: pauseTimer, isPending: isPausing } = usePauseTimer();
-  const { mutateAsync: stopTimer, isPending: isStopping } = useStopTimer();
   const { canManageTasks } = useWorkspacePermission();
 
-  const entry = data?.entries.find((item) => item.taskId === taskId);
   // The single-entry-per-(task,user) model means at most one item in
-  // `timeEntries` belongs to the current user, whether it's open, paused, or
-  // closed — `useActiveTimers` only covers the open case, so this is needed
-  // to find the entry to edit even after the timer has been stopped.
-  const myTimeEntryId = user?.id
-    ? timeEntries?.find((item) => item.userId === user.id)?.id
+  // `timeEntries` belongs to the current user — open (no `endTime`, either
+  // running or paused) or closed. This is the one and only source for the
+  // counter, the total, and the toggle's state, so they can't drift apart
+  // the way the counter (from `useActiveTimers`) and the total (from this
+  // same query) used to.
+  const myEntry = user?.id
+    ? timeEntries?.find((item) => item.userId === user.id)
     : undefined;
-  const clockSkewMs = data?.serverTime
-    ? new Date(data.serverTime).getTime() - Date.now()
-    : 0;
+  const isOpen = !!myEntry && myEntry.endTime === null;
+  const isRunning = isOpen && !!myEntry?.runningSince;
 
-  // The single duration shown to the user is the task's tracked total, not a
-  // separate "current session" figure — with one time entry per task now,
-  // those used to be the same number rendered twice. Sourced from the
-  // task's entries query (not `useActiveTimers`) so it keeps showing the
-  // real accumulated time after the entry has been stopped.
-  const totalTracked = useTaskTotalTrackedSeconds(timeEntries, clockSkewMs);
+  const totalTracked = useTaskTotalTrackedSeconds(timeEntries, 0);
 
   if (!canManageTasks()) return null;
 
-  const isBusy = isStarting || isPausing || isStopping;
+  const isBusy = isStarting || isPausing;
 
-  const handleStart = async () => {
+  const handleToggle = async () => {
     try {
-      await startTimer({ taskId });
+      if (isRunning && myEntry) {
+        await pauseTimer({ timeEntryId: myEntry.id, taskId });
+      } else {
+        await startTimer({ taskId });
+      }
     } catch {
-      toast.error(t("tasks:timer.startError"));
+      toast.error(
+        t(isRunning ? "tasks:timer.pauseError" : "tasks:timer.startError"),
+      );
     }
   };
 
-  const handlePause = async () => {
-    if (!entry) return;
-    try {
-      await pauseTimer({ timeEntryId: entry.id, taskId });
-    } catch {
-      toast.error(t("tasks:timer.pauseError"));
-    }
-  };
-
-  const handleStop = async () => {
-    if (!entry) return;
-    try {
-      await stopTimer({ timeEntryId: entry.id, taskId });
-    } catch {
-      toast.error(t("tasks:timer.stopError"));
-    }
-  };
+  const toggleLabel = isRunning
+    ? t("tasks:timer.pause")
+    : isOpen
+      ? t("tasks:timer.resume")
+      : t("tasks:timer.start");
 
   if (compact) {
     return (
@@ -93,39 +78,20 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
           variant="ghost"
           size="sm"
           disabled={isBusy}
-          onClick={entry?.isRunning ? handlePause : handleStart}
+          onClick={handleToggle}
           className="justify-start h-7 px-1.5"
-          aria-label={
-            entry?.isRunning
-              ? t("tasks:timer.pause")
-              : entry
-                ? t("tasks:timer.resume")
-                : t("tasks:timer.start")
-          }
+          aria-label={toggleLabel}
         >
-          {entry?.isRunning ? (
+          {isRunning ? (
             <Pause className="w-3.5 h-3.5 text-muted-foreground" />
           ) : (
             <Play className="w-3.5 h-3.5 text-muted-foreground" />
           )}
         </Button>
 
-        {entry && (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={isBusy}
-            onClick={handleStop}
-            className="justify-start h-7 px-1.5"
-            aria-label={t("tasks:timer.stop")}
-          >
-            <Square className="w-3.5 h-3.5 text-muted-foreground" />
-          </Button>
-        )}
-
         <TaskTotalPopover
           taskId={taskId}
-          timeEntryId={myTimeEntryId}
+          timeEntryId={myEntry?.id}
           trackedSeconds={totalTracked}
         >
           <button
@@ -142,43 +108,23 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
 
   return (
     <div className="flex items-center gap-2">
-      {entry?.isRunning ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={isBusy}
-          onClick={handlePause}
-        >
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={isBusy}
+        onClick={handleToggle}
+      >
+        {isRunning ? (
           <Pause className="h-4 w-4" />
-          {t("tasks:timer.pause")}
-        </Button>
-      ) : (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={isBusy}
-          onClick={handleStart}
-        >
+        ) : (
           <Play className="h-4 w-4" />
-          {entry ? t("tasks:timer.resume") : t("tasks:timer.start")}
-        </Button>
-      )}
-
-      {entry && (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={isBusy}
-          onClick={handleStop}
-        >
-          <Square className="h-4 w-4" />
-          {t("tasks:timer.stop")}
-        </Button>
-      )}
+        )}
+        {toggleLabel}
+      </Button>
 
       <TaskTotalPopover
         taskId={taskId}
-        timeEntryId={myTimeEntryId}
+        timeEntryId={myEntry?.id}
         trackedSeconds={totalTracked}
       >
         <button
