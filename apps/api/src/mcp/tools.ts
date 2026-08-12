@@ -188,6 +188,111 @@ function buildFullTaskUpdateBody(
   return body;
 }
 
+/**
+ * Shape of one task as embedded by GET /api/task/tasks/:projectId, whether it
+ * sits inside a column's `tasks[]` or in the top-level `archivedTasks` /
+ * `plannedTasks` buckets. Only the fields `flattenTasksResponse` reads are
+ * declared; the endpoint returns more (description, labels, ...) that the
+ * flat shape intentionally drops.
+ */
+type RawTask = {
+  id: string;
+  number: number;
+  title: string;
+  status: string;
+  priority: string;
+  assigneeId: string | null;
+  dueDate: string | null;
+};
+
+type RawColumn = {
+  slug: string;
+  tasks: RawTask[];
+};
+
+type RawListTasksResponse = {
+  data: {
+    id: string;
+    name: string;
+    columns: RawColumn[];
+    archivedTasks?: RawTask[];
+    plannedTasks?: RawTask[];
+  };
+  pagination: { total: number };
+};
+
+type FlatTask = {
+  id: string;
+  number: number;
+  title: string;
+  status: string;
+  priority: string;
+  assigneeId: string | null;
+  dueDate: string | null;
+};
+
+/**
+ * Reshapes the board-oriented `/api/task/tasks/:projectId` response (a
+ * project with tasks nested under columns) into a flat task list plus
+ * per-status counts, so a model can answer "how many tasks are X" by reading
+ * one number instead of walking nested arrays and miscounting.
+ *
+ * Column tasks get `status` set to the column's own slug (matching what
+ * `update_task_status` expects) rather than trusting the task's own status
+ * field, since that is the value MCP callers actually filter and act on.
+ * Archived and planned tasks — returned by the endpoint as separate
+ * top-level buckets, not inside any column — are included too, using their
+ * own `status` field ("archived" / "planned") since they have no column.
+ * `countsByStatus` is derived from this same flat list so it can never
+ * disagree with it; `total` is passed through from `pagination.total`
+ * (a separate DB count of all matching tasks) unchanged.
+ */
+function flattenTasksResponse(raw: RawListTasksResponse) {
+  const tasks: FlatTask[] = [];
+
+  for (const column of raw.data.columns ?? []) {
+    for (const task of column.tasks ?? []) {
+      tasks.push({
+        id: task.id,
+        number: task.number,
+        title: task.title,
+        status: column.slug,
+        priority: task.priority,
+        assigneeId: task.assigneeId ?? null,
+        dueDate: task.dueDate ?? null,
+      });
+    }
+  }
+
+  for (const task of [
+    ...(raw.data.archivedTasks ?? []),
+    ...(raw.data.plannedTasks ?? []),
+  ]) {
+    tasks.push({
+      id: task.id,
+      number: task.number,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      assigneeId: task.assigneeId ?? null,
+      dueDate: task.dueDate ?? null,
+    });
+  }
+
+  const countsByStatus: Record<string, number> = {};
+  for (const task of tasks) {
+    countsByStatus[task.status] = (countsByStatus[task.status] ?? 0) + 1;
+  }
+
+  return {
+    projectId: raw.data.id,
+    projectName: raw.data.name,
+    total: raw.pagination.total,
+    countsByStatus,
+    tasks,
+  };
+}
+
 const prioritySchema = z.enum([
   "no-priority",
   "low",
@@ -364,7 +469,12 @@ export function registerMcpTools(
   registerTool(
     "list_tasks",
     {
-      description: "List tasks for a project (optionally filtered/sorted).",
+      description:
+        "List tasks for a project (optionally filtered/sorted) as a flat list " +
+        "with per-status counts: { projectId, projectName, total, countsByStatus, tasks }. " +
+        "`total` and `countsByStatus` always agree with `tasks`. Each task's `status` is " +
+        "the column slug it sits in (or 'archived'/'planned'), which is what " +
+        "update_task_status and the `status` filter expect.",
       inputSchema: z.object({
         projectId: nonEmptyString,
         status: optionalNonEmptyString,
@@ -394,12 +504,13 @@ export function registerMcpTools(
         if (v !== undefined && v !== null) qs.set(k, String(v));
       }
       const q = qs.toString();
-      return run(() =>
-        client.json(
+      return run(async () => {
+        const raw = (await client.json(
           `/api/task/tasks/${encodeURIComponent(projectId)}${q ? `?${q}` : ""}`,
           { method: "GET" },
-        ),
-      );
+        )) as RawListTasksResponse;
+        return flattenTasksResponse(raw);
+      });
     },
   );
 
