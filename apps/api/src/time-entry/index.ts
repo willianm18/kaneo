@@ -109,12 +109,14 @@ const timeEntry = new Hono<{
         startTime: v.string(),
         endTime: v.optional(v.string()),
         description: v.optional(v.string()),
+        duration: v.optional(v.number()),
       }),
     ),
     workspaceAccess.fromTaskId(),
     requireWorkspacePermission({ task: ["update"] }),
     async (c) => {
-      const { taskId, startTime, endTime, description } = c.req.valid("json");
+      const { taskId, startTime, endTime, description, duration } =
+        c.req.valid("json");
       const userId = c.get("userId");
       const timeEntry = await createTimeEntry({
         taskId,
@@ -122,6 +124,7 @@ const timeEntry = new Hono<{
         startTime: new Date(startTime),
         endTime: endTime ? new Date(endTime) : undefined,
         description,
+        duration,
       });
       return c.json(timeEntry);
     },

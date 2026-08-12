@@ -169,6 +169,26 @@ describe("MCP tool catalog", () => {
     expect(lastRequest().body).not.toHaveProperty("endTime");
   });
 
+  it("converts durationMinutes to seconds and does not require an endTime", async () => {
+    await call("create_time_entry", {
+      taskId: "t1",
+      startTime: "2026-08-10T09:00:00Z",
+      durationMinutes: 300,
+    });
+
+    expect(lastRequest()).toMatchObject({
+      url: "http://api.test/api/time-entry",
+      method: "POST",
+      body: {
+        taskId: "t1",
+        startTime: "2026-08-10T09:00:00Z",
+        duration: 18000,
+      },
+    });
+    expect(lastRequest().body).not.toHaveProperty("endTime");
+    expect(lastRequest().body).not.toHaveProperty("durationMinutes");
+  });
+
   it("updates a time entry", async () => {
     await call("update_time_entry", {
       id: "te1",

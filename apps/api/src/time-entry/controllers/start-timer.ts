@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import db from "../../database";
 import { taskTable, timeEntryTable } from "../../database/schema";
 import { publishEvent } from "../../events";
+import { consolidateTimeEntries } from "../consolidate-entries";
 
 /**
  * Starts, resumes, or reopens the single time entry that a (task, user) pair
@@ -30,7 +31,8 @@ async function startTimer({
     )
     .orderBy(desc(timeEntryTable.startTime));
 
-  const [target, ...duplicates] = entries;
+  const { target, duplicates, mergedDuration } =
+    consolidateTimeEntries(entries);
 
   if (!target) {
     const [created] = await db
@@ -79,11 +81,6 @@ async function startTimer({
   // `duration` into the most recent entry (`target`, ordered by
   // `startTime`) and delete the rest. This only sums already-stored totals —
   // it never recomputes from timestamps — so no second is lost.
-  const mergedDuration = entries.reduce(
-    (total, entry) => total + (entry.duration ?? 0),
-    0,
-  );
-
   const [updated] = await db
     .update(timeEntryTable)
     .set({

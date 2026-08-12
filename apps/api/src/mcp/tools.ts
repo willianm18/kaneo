@@ -1114,11 +1114,28 @@ export function registerMcpTools(
     "create_time_entry",
     {
       description:
-        "Log time against a task. Omit endTime to leave the entry running.",
+        "Log time against a task. To log an AMOUNT of work the user stated " +
+        "(e.g. 'log 5 hours on this task'), pass `durationMinutes` — never " +
+        "invent a startTime/endTime window to represent an amount; that " +
+        "fabricates a time range the user never gave you. Only use " +
+        "startTime/endTime when the user actually states a specific time " +
+        "range they worked. Omit both endTime and durationMinutes to leave " +
+        "the entry running as an open timer.",
       inputSchema: z.object({
         taskId: nonEmptyString,
         startTime: isoDateTimeSchema,
         endTime: optionalIsoDateTimeSchema,
+        durationMinutes: z
+          .number()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Amount of work to log, in minutes (e.g. 300 for 5 hours). " +
+              "Preferred over endTime when the user states an amount of " +
+              "time rather than a start/end range — this tool converts it " +
+              "to seconds for the API, so the model never has to do that " +
+              "arithmetic or guess a time range itself.",
+          ),
         description: optionalNonEmptyString,
       }),
     },
@@ -1130,6 +1147,9 @@ export function registerMcpTools(
             taskId: args.taskId,
             startTime: args.startTime,
             ...(args.endTime ? { endTime: args.endTime } : {}),
+            ...(args.durationMinutes !== undefined
+              ? { duration: Math.round(args.durationMinutes * 60) }
+              : {}),
             ...(args.description ? { description: args.description } : {}),
           }),
         }),
