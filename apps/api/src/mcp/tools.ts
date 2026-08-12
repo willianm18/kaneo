@@ -207,6 +207,7 @@ type RawTask = {
 
 type RawColumn = {
   slug: string;
+  isFinal: boolean;
   tasks: RawTask[];
 };
 
@@ -246,9 +247,22 @@ type FlatTask = {
  * `countsByStatus` is derived from this same flat list so it can never
  * disagree with it; `total` is passed through from `pagination.total`
  * (a separate DB count of all matching tasks) unchanged.
+ *
+ * `openCount`/`completedCount` answer "how many tasks are open/done" without
+ * the model having to sum `countsByStatus` entries and guess which column
+ * slugs count as "open" (columns are user-renamable, so a slug-based guess
+ * can silently exclude e.g. a differently-named non-final column). A column
+ * task counts toward `completedCount` when its column's own `isFinal` flag
+ * is true, `openCount` otherwise — never by matching the slug against
+ * "done". Planned tasks have no column yet but are still pending work, so
+ * they count as open. Archived tasks are deliberately excluded from both:
+ * they were taken out of the active flow, so they are neither open nor
+ * completed work.
  */
 function flattenTasksResponse(raw: RawListTasksResponse) {
   const tasks: FlatTask[] = [];
+  let openCount = 0;
+  let completedCount = 0;
 
   for (const column of raw.data.columns ?? []) {
     for (const task of column.tasks ?? []) {
@@ -261,13 +275,12 @@ function flattenTasksResponse(raw: RawListTasksResponse) {
         assigneeId: task.assigneeId ?? null,
         dueDate: task.dueDate ?? null,
       });
+      if (column.isFinal) completedCount += 1;
+      else openCount += 1;
     }
   }
 
-  for (const task of [
-    ...(raw.data.archivedTasks ?? []),
-    ...(raw.data.plannedTasks ?? []),
-  ]) {
+  for (const task of raw.data.archivedTasks ?? []) {
     tasks.push({
       id: task.id,
       number: task.number,
@@ -277,6 +290,19 @@ function flattenTasksResponse(raw: RawListTasksResponse) {
       assigneeId: task.assigneeId ?? null,
       dueDate: task.dueDate ?? null,
     });
+  }
+
+  for (const task of raw.data.plannedTasks ?? []) {
+    tasks.push({
+      id: task.id,
+      number: task.number,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      assigneeId: task.assigneeId ?? null,
+      dueDate: task.dueDate ?? null,
+    });
+    openCount += 1;
   }
 
   const countsByStatus: Record<string, number> = {};
@@ -289,6 +315,8 @@ function flattenTasksResponse(raw: RawListTasksResponse) {
     projectName: raw.data.name,
     total: raw.pagination.total,
     countsByStatus,
+    openCount,
+    completedCount,
     tasks,
   };
 }
@@ -471,10 +499,15 @@ export function registerMcpTools(
     {
       description:
         "List tasks for a project (optionally filtered/sorted) as a flat list " +
-        "with per-status counts: { projectId, projectName, total, countsByStatus, tasks }. " +
-        "`total` and `countsByStatus` always agree with `tasks`. Each task's `status` is " +
-        "the column slug it sits in (or 'archived'/'planned'), which is what " +
-        "update_task_status and the `status` filter expect.",
+        "with per-status counts: { projectId, projectName, total, countsByStatus, " +
+        "openCount, completedCount, tasks }. `total` and `countsByStatus` always agree " +
+        "with `tasks`. Each task's `status` is the column slug it sits in (or " +
+        "'archived'/'planned'), which is what update_task_status and the `status` " +
+        "filter expect. `openCount` is the number of tasks NOT in a final column " +
+        "(per each column's own isFinal flag, not a 'done' name guess) plus planned " +
+        "tasks; `completedCount` is tasks in a final column. Archived tasks count " +
+        "toward neither. Use `openCount` directly for 'open'/'em aberto' questions " +
+        "instead of summing countsByStatus entries yourself.",
       inputSchema: z.object({
         projectId: nonEmptyString,
         status: optionalNonEmptyString,

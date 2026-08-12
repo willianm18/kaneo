@@ -243,16 +243,22 @@ describe("list_tasks reshaping", () => {
     });
   });
 
-  it("matches the real 1/1/3 project fixture: total 5 and matching counts", async () => {
+  it("matches the real 1/1/3 project fixture: total 5, matching counts, openCount 2, completedCount 3", async () => {
     const board = boardResponse({
       columns: [
-        { slug: "to-do", tasks: [rawTask("t1", { status: "to-do" })] },
+        {
+          slug: "to-do",
+          isFinal: false,
+          tasks: [rawTask("t1", { status: "to-do" })],
+        },
         {
           slug: "in-progress",
+          isFinal: false,
           tasks: [rawTask("t2", { status: "in-progress" })],
         },
         {
           slug: "done",
+          isFinal: true,
           tasks: [
             rawTask("t3", { status: "done" }),
             rawTask("t4", { status: "done" }),
@@ -275,6 +281,67 @@ describe("list_tasks reshaping", () => {
       done: 3,
     });
     expect(result.data.tasks).toHaveLength(5);
+    expect(result.data.openCount).toBe(2);
+    expect(result.data.completedCount).toBe(3);
+  });
+
+  it("computes openCount/completedCount from each column's isFinal flag, not a hardcoded 'done' slug", async () => {
+    // Final column deliberately named "shipped" instead of "done", and a
+    // non-final column deliberately named "done" — proves the flag drives
+    // the count, not the slug text.
+    const board = boardResponse({
+      columns: [
+        {
+          slug: "done",
+          isFinal: false,
+          tasks: [rawTask("t1", { status: "done" })],
+        },
+        {
+          slug: "shipped",
+          isFinal: true,
+          tasks: [
+            rawTask("t2", { status: "shipped" }),
+            rawTask("t3", { status: "shipped" }),
+          ],
+        },
+      ],
+      total: 3,
+    });
+    apiFetch.mockResolvedValueOnce(Response.json(board));
+
+    const result = await call("list_tasks", { projectId: board.data.id });
+
+    expect(result.data.openCount).toBe(1);
+    expect(result.data.completedCount).toBe(2);
+  });
+
+  it("counts planned tasks as open and excludes archived tasks from both counts", async () => {
+    const board = boardResponse({
+      columns: [
+        {
+          slug: "to-do",
+          isFinal: false,
+          tasks: [rawTask("t1", { status: "to-do" })],
+        },
+        {
+          slug: "done",
+          isFinal: true,
+          tasks: [rawTask("t2", { status: "done" })],
+        },
+      ],
+      archivedTasks: [rawTask("t3", { status: "archived" })],
+      plannedTasks: [rawTask("t4", { status: "planned" })],
+      total: 4,
+    });
+    apiFetch.mockResolvedValueOnce(Response.json(board));
+
+    const result = await call("list_tasks", { projectId: board.data.id });
+
+    // to-do (open) + planned (open) = 2; done (completed) = 1;
+    // archived counts toward neither, so 2 + 1 !== total tasks (4).
+    expect(result.data.openCount).toBe(2);
+    expect(result.data.completedCount).toBe(1);
+    expect(result.data.tasks).toHaveLength(4);
   });
 
   it("keeps only the documented fields on each flat task", async () => {
@@ -318,5 +385,15 @@ describe("list_tasks reshaping", () => {
     expect(description).toContain("flat list");
     expect(description).toContain("countsByStatus");
     expect(description).toContain("column slug");
+  });
+
+  it("describes openCount as the not-final-column count, for direct use on 'open'/'em aberto' questions", () => {
+    const configs = collectToolConfigs();
+    const description = configs.get("list_tasks")?.description ?? "";
+
+    expect(description).toContain("openCount");
+    expect(description).toContain("completedCount");
+    expect(description).toContain("isFinal");
+    expect(description.toLowerCase()).toContain("final column");
   });
 });
