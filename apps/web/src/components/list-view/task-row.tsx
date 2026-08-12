@@ -46,6 +46,7 @@ import { useUserPreferencesStore } from "@/store/user-preferences";
 import type Task from "@/types/task";
 import TaskCardContextMenuContent from "../kanban-board/task-card-context-menu/task-card-context-menu-content";
 import { TaskLabels } from "../kanban-board/task-labels";
+import { TaskTimeChips } from "../kanban-board/task-time-chips";
 import { ContextMenu, ContextMenuTrigger } from "../ui/context-menu";
 
 type TaskRowProps = {
@@ -334,6 +335,12 @@ function TaskRow({ task, projectSlug }: TaskRowProps) {
                 </div>
               </div>
             </div>
+
+            <TaskTimeChips
+              trackedSeconds={task.trackedSeconds}
+              estimatedSeconds={task.estimatedSeconds}
+              className="flex-shrink-0"
+            />
 
             {showDueDates && task.dueDate && (
               <div

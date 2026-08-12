@@ -108,4 +108,24 @@ describe("TaskRow", () => {
     expect(useExternalLinks).not.toHaveBeenCalled();
     expect(useGetLabelsByTask).not.toHaveBeenCalled();
   });
+
+  it("renders tracked time and estimate chips when present", () => {
+    render(
+      <TaskRow
+        task={{ ...task, trackedSeconds: 3600, estimatedSeconds: 5400 }}
+        projectSlug="kan"
+      />,
+    );
+
+    expect(screen.getByText("01:00:00")).toBeVisible();
+    expect(screen.getByText("1h 30m")).toBeVisible();
+  });
+
+  it("renders neither chip when tracked time and estimate are absent", () => {
+    render(<TaskRow task={task} projectSlug="kan" />);
+
+    expect(screen.queryByText(/^\d{2}:\d{2}:\d{2}$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^\d+h( \d+m)?$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^\d+m$/)).not.toBeInTheDocument();
+  });
 });

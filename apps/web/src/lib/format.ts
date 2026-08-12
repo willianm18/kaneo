@@ -55,6 +55,15 @@ export function formatDateTime(value: DateInput, locale?: string) {
   );
 }
 
+/** Compact "Xh Ym" estimate label, e.g. for task cards and the estimate popover. */
+export function formatEstimate(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours && minutes) return `${hours}h ${minutes}m`;
+  if (hours) return `${hours}h`;
+  return `${minutes}m`;
+}
+
 export function formatRelativeTime(
   value: DateInput,
   locale?: string,

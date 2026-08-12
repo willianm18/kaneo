@@ -17,8 +17,21 @@ import {
   labelTable,
   projectTable,
   taskTable,
+  timeEntryTable,
   userTable,
 } from "../../database/schema";
+
+// Correlated subquery rather than a join: get-tasks already left-joins
+// userTable and projectTable, and adding a join on time_entry here would
+// multiply task rows (one per entry) and inflate anything computed off
+// those rows. The subquery keeps one row per task and returns 0 (via
+// COALESCE) for tasks with no entries, so a task with no time tracked
+// still comes back instead of being dropped by an inner join.
+const trackedSecondsExpr = sql<number>`(
+  SELECT COALESCE(SUM(${timeEntryTable.duration}), 0)
+  FROM ${timeEntryTable}
+  WHERE ${timeEntryTable.taskId} = ${taskTable.id}
+)`;
 
 type GetTasksOptions = {
   assigneeId?: string;
@@ -131,6 +144,7 @@ async function getTasks(projectId: string, options: GetTasksOptions = {}) {
     dueDate: taskTable.dueDate,
     completedAt: taskTable.completedAt,
     estimatedSeconds: taskTable.estimatedSeconds,
+    trackedSeconds: trackedSecondsExpr,
     position: taskTable.position,
     createdAt: taskTable.createdAt,
     userId: taskTable.userId,

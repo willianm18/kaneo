@@ -46,6 +46,7 @@ import { Button } from "../ui/button";
 import { ContextMenu, ContextMenuTrigger } from "../ui/context-menu";
 import TaskCardContextMenuContent from "./task-card-context-menu/task-card-context-menu-content";
 import { TaskLabels } from "./task-labels";
+import { TaskTimeChips } from "./task-time-chips";
 
 type TaskCardProps = {
   task: Task;
@@ -278,6 +279,11 @@ function TaskCard({ task, disableDragDrop = false }: TaskCardProps) {
                   <span>{format(new Date(task.dueDate), "MMM d")}</span>
                 </div>
               )}
+
+              <TaskTimeChips
+                trackedSeconds={task.trackedSeconds}
+                estimatedSeconds={task.estimatedSeconds}
+              />
 
               {pullRequests.length === 1 && (
                 <HoverCard openDelay={200} closeDelay={100}>

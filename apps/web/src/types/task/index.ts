@@ -26,6 +26,7 @@ type Task = {
   dueDate: string | null;
   completedAt: string | null;
   estimatedSeconds: number | null;
+  trackedSeconds?: number | null;
   position: number | null;
   createdAt: string;
   updatedAt?: string;
