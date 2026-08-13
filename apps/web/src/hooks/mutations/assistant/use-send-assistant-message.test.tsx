@@ -51,8 +51,12 @@ describe("useSendAssistantMessage", () => {
     // more, so a targeted list of keys would inevitably miss one (this is
     // the original bug). A non-empty `actions` means the backend changed
     // something, so the whole cache is invalidated unconditionally.
+    // `refetchType: "all"` reaches queries that are currently inactive, which
+    // a plain invalidate would leave stale because this app disables
+    // `refetchOnMount` globally — a screen closed during the assistant's turn
+    // would otherwise reopen showing pre-action data.
     expect(mockInvalidateQueries).toHaveBeenCalledTimes(1);
-    expect(mockInvalidateQueries).toHaveBeenCalledWith();
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ refetchType: "all" });
   });
 
   it("invalidates nothing when the response has no executed actions", async () => {

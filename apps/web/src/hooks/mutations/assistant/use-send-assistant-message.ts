@@ -29,8 +29,14 @@ function useSendAssistantMessage() {
       // mutation, so we invalidate nothing to avoid a refetch storm on every
       // chat message. Do not "optimize" this back into a narrow list of
       // query keys — that is the bug this fixes.
+      // `refetchType: "all"` is required, not decorative: this app sets
+      // `refetchOnMount: false` globally (see query-client/index.ts), so a
+      // plain invalidate only marks caches stale and a screen that was closed
+      // during the assistant's turn serves the stale cache when reopened
+      // instead of refetching. That is exactly how a comment the assistant
+      // had really created stayed invisible until a full page reload.
       if ((data.actions ?? []).length > 0) {
-        queryClient.invalidateQueries();
+        queryClient.invalidateQueries({ refetchType: "all" });
       }
     },
   });
