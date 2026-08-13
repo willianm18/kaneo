@@ -107,6 +107,16 @@ All Sentry integration is opt-in; leave these unset for zero telemetry.
 - `KANEO_SENTRY_DSN` - Sentry DSN for the **web container** (browser errors, tracing, session replay). Same runtime-placeholder mechanism as `KANEO_TURNSTILE_SITE_KEY`.
 - `VITE_SENTRY_DSN` - Local dev only. Set in `apps/web/.env` when running `pnpm dev`.
 
+#### AI assistant (OpenRouter) and voice dictation (AssemblyAI)
+
+Both are opt-in and fail closed: when a key is absent the feature does not render at all, rather than appearing and erroring.
+
+- `OPENROUTER_API_KEY` - Enables the assistant chat. The button only appears when this is set (exposed as `hasAssistant` on `/api/config`). Get a key at [openrouter.ai/keys](https://openrouter.ai/keys).
+- `OPENROUTER_MODEL` - Which model answers. Must support tool calling. Cost per conversation varies a lot between models, so this is the main lever on spend.
+- `ASSEMBLYAI_API_KEY` - Enables the microphone in the assistant chat, transcribing speech into the message box for review before sending (exposed as `hasVoiceInput`). Audio is sent to AssemblyAI and transcribed with `language_code: pt`. Get a key at [assemblyai.com](https://www.assemblyai.com/).
+
+Both send your content to a third party — task titles and descriptions to OpenRouter, recorded audio to AssemblyAI. Leave the keys unset if that is not acceptable for your data.
+
 For a complete list of all environment variables, their descriptions, and configuration options, see the [official documentation](https://kaneo.app/docs/core/installation/environment-variables).
 
 ## Common Issues & Troubleshooting
