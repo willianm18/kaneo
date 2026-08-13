@@ -2155,6 +2155,7 @@
 		"transcribing": "Transcrevendo...",
 		"micDenied": "Permissão de microfone negada",
 		"micUnavailable": "Nenhum microfone disponível",
-		"transcribeError": "Não foi possível transcrever o áudio"
+		"transcribeError": "Não foi possível transcrever o áudio",
+		"dragHandle": "Arraste para mover o assistente"
 	}
 }

@@ -8499,6 +8499,9 @@
 				},
 				"transcribeError": {
 					"type": "string"
+				},
+				"dragHandle": {
+					"type": "string"
 				}
 			},
 			"required": [
@@ -8525,7 +8528,8 @@
 				"transcribing",
 				"micDenied",
 				"micUnavailable",
-				"transcribeError"
+				"transcribeError",
+				"dragHandle"
 			]
 		}
 	},

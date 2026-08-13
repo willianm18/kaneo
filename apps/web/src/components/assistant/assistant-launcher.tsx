@@ -1,6 +1,7 @@
 import { useParams } from "@tanstack/react-router";
 import { Maximize2, MessageCircle, Minimize2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AssistantChat from "@/components/assistant/assistant-chat";
 import { Button } from "@/components/ui/button";
@@ -8,12 +9,18 @@ import useGetConfig from "@/hooks/queries/config/use-get-config";
 import { cn } from "@/lib/cn";
 
 type AssistantMode = "bubble" | "panel";
+type Position = { x: number; y: number };
 
-const STORAGE_KEY = "kaneo:assistant-mode";
+const MODE_STORAGE_KEY = "kaneo:assistant-mode";
+const POSITION_STORAGE_KEY = "kaneo:assistant-position";
+
+// A pointer has to move at least this many pixels before a press is treated
+// as a drag rather than a click, so a plain tap still opens the chat.
+const DRAG_THRESHOLD_PX = 4;
 
 function readStoredMode(): AssistantMode {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === "panel"
+    return window.localStorage.getItem(MODE_STORAGE_KEY) === "panel"
       ? "panel"
       : "bubble";
   } catch {
@@ -23,11 +30,223 @@ function readStoredMode(): AssistantMode {
 
 function writeStoredMode(mode: AssistantMode) {
   try {
-    window.localStorage.setItem(STORAGE_KEY, mode);
+    window.localStorage.setItem(MODE_STORAGE_KEY, mode);
   } catch {
     // localStorage can be unavailable (private browsing, etc.) — the mode
     // just won't survive a reload, which is not worth failing over.
   }
+}
+
+function readStoredPosition(): Position | null {
+  try {
+    const raw = window.localStorage.getItem(POSITION_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed.x === "number" &&
+      typeof parsed.y === "number" &&
+      Number.isFinite(parsed.x) &&
+      Number.isFinite(parsed.y)
+    ) {
+      return { x: parsed.x, y: parsed.y };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPosition(position: Position) {
+  try {
+    window.localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(position));
+  } catch {
+    // Same as the mode above: not persisting a dragged position is not
+    // worth failing over.
+  }
+}
+
+// Keeps a position's top-left corner fully inside the current viewport for
+// an element of the given size. Used both while dragging and whenever the
+// viewport changes (e.g. resizing from a wide monitor down to a laptop).
+export function clampPosition(
+  position: Position,
+  size: { width: number; height: number },
+): Position {
+  const maxX = Math.max(0, window.innerWidth - size.width);
+  const maxY = Math.max(0, window.innerHeight - size.height);
+  return {
+    x: Math.min(Math.max(position.x, 0), maxX),
+    y: Math.min(Math.max(position.y, 0), maxY),
+  };
+}
+
+type DragState = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startPositionX: number;
+  startPositionY: number;
+  moved: boolean;
+};
+
+/**
+ * Makes `containerRef` draggable via pointer events on whatever handle
+ * triggers `onPointerDown`. Position is expressed as the container's
+ * top-left corner in viewport pixels, restored from and persisted to
+ * localStorage, and re-clamped on mount and on window resize so a position
+ * saved on a larger screen can't strand the element off-screen.
+ *
+ * `enabled` controls whether dragging (and the stored position) applies at
+ * all — the full-height "panel" mode ignores it and stays docked to the
+ * edge of the screen.
+ */
+function useDraggable(
+  containerRef: React.RefObject<HTMLElement | null>,
+  enabled: boolean,
+) {
+  const [position, setPosition] = useState<Position | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStateRef = useRef<DragState | null>(null);
+  const suppressClickRef = useRef(false);
+
+  // On mount (and whenever dragging becomes enabled for this element),
+  // restore + clamp the stored position against this element's actual size.
+  useEffect(() => {
+    if (!enabled) {
+      setPosition(null);
+      return;
+    }
+    const stored = readStoredPosition();
+    const el = containerRef.current;
+    if (!stored || !el) {
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    setPosition(
+      clampPosition(stored, { width: rect.width, height: rect.height }),
+    );
+  }, [enabled, containerRef]);
+
+  // Re-clamp on viewport resize so a stranded-off-screen position is pulled
+  // back into view rather than left there until the next drag.
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    const handleResize = () => {
+      const el = containerRef.current;
+      if (!el) {
+        return;
+      }
+      setPosition((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const rect = el.getBoundingClientRect();
+        return clampPosition(prev, { width: rect.width, height: rect.height });
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [enabled, containerRef]);
+
+  const handlePointerDown = useCallback(
+    (event: ReactPointerEvent) => {
+      if (!enabled) {
+        return;
+      }
+      const el = containerRef.current;
+      if (!el) {
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const current = position ?? { x: rect.left, y: rect.top };
+      dragStateRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startPositionX: current.x,
+        startPositionY: current.y,
+        moved: false,
+      };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    },
+    [enabled, containerRef, position],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: ReactPointerEvent) => {
+      const state = dragStateRef.current;
+      if (!state || state.pointerId !== event.pointerId) {
+        return;
+      }
+      const dx = event.clientX - state.startClientX;
+      const dy = event.clientY - state.startClientY;
+      if (!state.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) {
+        return;
+      }
+      state.moved = true;
+      setIsDragging(true);
+      const el = containerRef.current;
+      const next = {
+        x: state.startPositionX + dx,
+        y: state.startPositionY + dy,
+      };
+      setPosition(
+        el
+          ? clampPosition(next, {
+              width: el.getBoundingClientRect().width,
+              height: el.getBoundingClientRect().height,
+            })
+          : next,
+      );
+    },
+    [containerRef],
+  );
+
+  const endDrag = useCallback((event: ReactPointerEvent) => {
+    const state = dragStateRef.current;
+    if (!state || state.pointerId !== event.pointerId) {
+      return;
+    }
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    dragStateRef.current = null;
+    setIsDragging(false);
+    if (state.moved) {
+      suppressClickRef.current = true;
+      setPosition((prev) => {
+        if (prev) {
+          writeStoredPosition(prev);
+        }
+        return prev;
+      });
+    }
+  }, []);
+
+  // Consumed once by the click handler on the same element: a drag that
+  // just ended must not also fire the underlying click.
+  const consumeClickSuppression = useCallback(() => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return true;
+    }
+    return false;
+  }, []);
+
+  return {
+    position,
+    isDragging,
+    dragHandleProps: {
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: endDrag,
+      onPointerCancel: endDrag,
+    },
+    consumeClickSuppression,
+  };
 }
 
 function AssistantLauncher() {
@@ -42,6 +261,14 @@ function AssistantLauncher() {
     writeStoredMode(mode);
   }, [mode]);
 
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // The full-height "panel" mode stays docked to the screen edge — only the
+  // floating button and the bubble chat window are draggable.
+  const buttonDrag = useDraggable(buttonRef, true);
+  const panelDrag = useDraggable(panelRef, mode === "bubble");
+
   if (!config?.hasAssistant) {
     return null;
   }
@@ -49,10 +276,30 @@ function AssistantLauncher() {
   if (!isOpen) {
     return (
       <Button
+        ref={buttonRef}
         size="icon-lg"
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          if (buttonDrag.consumeClickSuppression()) {
+            return;
+          }
+          setIsOpen(true);
+        }}
         aria-label={t("assistant:open")}
-        className="fixed right-4 bottom-4 z-40 rounded-full shadow-lg"
+        className={cn(
+          "fixed right-4 bottom-4 z-60 touch-none rounded-full shadow-lg",
+          buttonDrag.isDragging && "cursor-grabbing",
+        )}
+        style={
+          buttonDrag.position
+            ? {
+                left: buttonDrag.position.x,
+                top: buttonDrag.position.y,
+                right: "auto",
+                bottom: "auto",
+              }
+            : undefined
+        }
+        {...buttonDrag.dragHandleProps}
       >
         <MessageCircle className="size-5" />
       </Button>
@@ -65,16 +312,43 @@ function AssistantLauncher() {
   // place instead of unmounting/remounting `AssistantChat` — which would
   // wipe the conversation the user is in the middle of. Do not split this
   // into two branches that each render their own `AssistantChat`.
+  //
+  // z-60 and pointer-events-auto keep the assistant reachable while a
+  // task sheet/dialog is open: those are modal, rendered at z-50 behind a
+  // full-viewport backdrop that would otherwise intercept every click at
+  // this element's position even though it stays visually on top.
   return (
     <div
+      ref={panelRef}
       className={cn(
-        "fixed z-40 flex flex-col overflow-hidden border border-border bg-card shadow-xl",
+        "pointer-events-auto fixed z-60 flex flex-col overflow-hidden border border-border bg-card shadow-xl",
         mode === "bubble"
           ? "right-4 bottom-4 h-[min(600px,calc(100vh-2rem))] w-[min(380px,calc(100vw-2rem))] rounded-xl"
           : "inset-y-0 right-0 w-full rounded-none border-y-0 border-r-0 sm:w-105 sm:border-l",
       )}
+      style={
+        mode === "bubble" && panelDrag.position
+          ? {
+              left: panelDrag.position.x,
+              top: panelDrag.position.y,
+              right: "auto",
+              bottom: "auto",
+            }
+          : undefined
+      }
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-border border-b px-3 py-2">
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-between gap-2 border-border border-b px-3 py-2",
+          mode === "bubble" && "touch-none",
+          mode === "bubble" && panelDrag.isDragging
+            ? "cursor-grabbing"
+            : mode === "bubble" && "cursor-grab",
+        )}
+        role="toolbar"
+        aria-label={mode === "bubble" ? t("assistant:dragHandle") : undefined}
+        {...(mode === "bubble" ? panelDrag.dragHandleProps : undefined)}
+      >
         <MessageCircle
           className="size-4 text-muted-foreground"
           aria-hidden="true"

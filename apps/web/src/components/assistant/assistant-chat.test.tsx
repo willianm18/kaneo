@@ -387,3 +387,90 @@ describe("AssistantLauncher", () => {
     expect(mockMutateAsync).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("AssistantLauncher arrastar", () => {
+  const POSITION_STORAGE_KEY = "kaneo:assistant-position";
+
+  beforeEach(() => {
+    mockUseGetConfig.mockReturnValue({ data: { hasAssistant: true } });
+    // The button is a fixed 56x56 box positioned near the bottom-right
+    // corner of a 1024x768 jsdom viewport (the default in this test env).
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 56,
+      height: 56,
+      left: 900,
+      top: 600,
+      right: 956,
+      bottom: 656,
+      x: 900,
+      y: 600,
+      toJSON() {},
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("um clique sem movimento ainda abre o chat", () => {
+    render(<AssistantLauncher />);
+    const button = screen.getByLabelText("assistant:open");
+
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 900, clientY: 600 });
+    fireEvent.pointerUp(button, { pointerId: 1, clientX: 900, clientY: 600 });
+    fireEvent.click(button);
+
+    expect(screen.getByLabelText("assistant:placeholder")).toBeInTheDocument();
+  });
+
+  it("arrastar move o botao e persiste a posicao, sem disparar o clique", () => {
+    render(<AssistantLauncher />);
+    const button = screen.getByLabelText("assistant:open");
+
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 900, clientY: 600 });
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 930, clientY: 700 });
+    fireEvent.pointerUp(button, { pointerId: 1, clientX: 930, clientY: 700 });
+    fireEvent.click(button);
+
+    // dx=30, dy=100 from the button's starting corner (900, 600).
+    expect(button.style.left).toBe("930px");
+    expect(button.style.top).toBe("700px");
+    // A real drag must not also open the chat.
+    expect(
+      screen.queryByLabelText("assistant:placeholder"),
+    ).not.toBeInTheDocument();
+
+    const stored = JSON.parse(
+      window.localStorage.getItem(POSITION_STORAGE_KEY) ?? "null",
+    );
+    expect(stored).toEqual({ x: 930, y: 700 });
+  });
+
+  it("restaura a posicao salva do localStorage", () => {
+    window.localStorage.setItem(
+      POSITION_STORAGE_KEY,
+      JSON.stringify({ x: 200, y: 150 }),
+    );
+
+    render(<AssistantLauncher />);
+    const button = screen.getByLabelText("assistant:open");
+
+    expect(button.style.left).toBe("200px");
+    expect(button.style.top).toBe("150px");
+  });
+
+  it("reenquadra uma posicao salva fora da tela", () => {
+    // Far outside the 1024x768 jsdom viewport, e.g. saved on a much wider
+    // monitor.
+    window.localStorage.setItem(
+      POSITION_STORAGE_KEY,
+      JSON.stringify({ x: 5000, y: 5000 }),
+    );
+
+    render(<AssistantLauncher />);
+    const button = screen.getByLabelText("assistant:open");
+
+    expect(button.style.left).toBe(`${1024 - 56}px`);
+    expect(button.style.top).toBe(`${768 - 56}px`);
+  });
+});
