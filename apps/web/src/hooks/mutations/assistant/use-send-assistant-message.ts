@@ -1,11 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { SendAssistantMessageRequest } from "@/fetchers/assistant/send-message";
 import sendAssistantMessage from "@/fetchers/assistant/send-message";
+
+export type SendAssistantMessageVariables = SendAssistantMessageRequest & {
+  onProgress?: (toolName: string) => void;
+};
 
 function useSendAssistantMessage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: sendAssistantMessage,
+    mutationFn: ({ onProgress, ...payload }: SendAssistantMessageVariables) =>
+      sendAssistantMessage(payload, onProgress),
     onSuccess: (data) => {
       // The assistant can call any of its tools (currently 42, and growing)
       // touching tasks, projects, labels, comments, time entries, relations,

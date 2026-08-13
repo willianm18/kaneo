@@ -78,6 +78,7 @@ describe("AssistantChat", () => {
       messages: [{ role: "user", content: "Crie uma tarefa de teste" }],
       workspaceId: "ws-1",
       projectId: "proj-1",
+      onProgress: expect.any(Function),
     });
   });
 

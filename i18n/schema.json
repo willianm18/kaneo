@@ -8440,7 +8440,16 @@
 				"thinking": {
 					"type": "string"
 				},
+				"workingOn": {
+					"type": "string"
+				},
 				"error": {
+					"type": "string"
+				},
+				"connectionError": {
+					"type": "string"
+				},
+				"connectionErrorPartial": {
 					"type": "string"
 				},
 				"confirmTitle": {
@@ -8497,7 +8506,10 @@
 				"placeholder",
 				"send",
 				"thinking",
+				"workingOn",
 				"error",
+				"connectionError",
+				"connectionErrorPartial",
 				"confirmTitle",
 				"confirm",
 				"cancel",

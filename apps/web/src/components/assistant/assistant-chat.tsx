@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type sendAssistantMessage from "@/fetchers/assistant/send-message";
 import type { AssistantMessage } from "@/fetchers/assistant/send-message";
+import { AssistantRequestError } from "@/fetchers/assistant/send-message";
 import transcribeAudio from "@/fetchers/assistant/transcribe";
 import useSendAssistantMessage from "@/hooks/mutations/assistant/use-send-assistant-message";
 import useGetConfig from "@/hooks/queries/config/use-get-config";
@@ -41,6 +42,23 @@ function extractTaskId(summary: string): string | null {
   return /"id"\s*:\s*"([^"]+)"/.exec(summary)?.[1] ?? null;
 }
 
+// One generic "something went wrong" used to cover every failure, including
+// a connection that simply dropped mid-stream after the work had already
+// been applied — which invited the user to retry and duplicate it. Now we
+// tell three cases apart: the assistant genuinely failing (already logged
+// server-side), the connection dropping before anything ran (safe to
+// retry), and the connection dropping after at least one tool had already
+// started (must not invite a blind retry).
+function failureMessageKey(error: unknown): string {
+  if (error instanceof AssistantRequestError) {
+    if (error.kind === "assistant") return "assistant:error";
+    return error.partial
+      ? "assistant:connectionErrorPartial"
+      : "assistant:connectionError";
+  }
+  return "assistant:error";
+}
+
 function AssistantChat({
   workspaceId,
   projectId,
@@ -58,6 +76,7 @@ function AssistantChat({
   const [conversationSignature, setConversationSignature] = useState<
     string | null
   >(null);
+  const [progressTool, setProgressTool] = useState<string | null>(null);
 
   const { mutateAsync, isPending } = useSendAssistantMessage();
   const { data: config } = useGetConfig();
@@ -177,26 +196,31 @@ function AssistantChat({
     ];
     appendMessage({ role: "user", content: text });
     setDraft("");
+    setProgressTool(null);
 
     try {
       const result = await mutateAsync({
         messages: history,
         workspaceId,
         projectId,
+        onProgress: setProgressTool,
       });
       applyResult(result);
-    } catch {
+    } catch (error) {
       appendMessage({
         role: "assistant",
-        content: t("assistant:error"),
+        content: t(failureMessageKey(error)),
         isError: true,
       });
+    } finally {
+      setProgressTool(null);
     }
   };
 
   const handleConfirm = async () => {
     if (!pending || !conversationState || !conversationSignature) return;
 
+    setProgressTool(null);
     try {
       const result = await mutateAsync({
         messages: messages.map(({ role, content }) => ({ role, content })),
@@ -205,15 +229,18 @@ function AssistantChat({
         confirmations: [pending.toolCallId],
         resumeFrom: conversationState,
         conversationSignature,
+        onProgress: setProgressTool,
       });
       applyResult(result);
-    } catch {
+    } catch (error) {
       clearPendingConfirmation();
       appendMessage({
         role: "assistant",
-        content: t("assistant:error"),
+        content: t(failureMessageKey(error)),
         isError: true,
       });
+    } finally {
+      setProgressTool(null);
     }
   };
 
@@ -298,7 +325,9 @@ function AssistantChat({
 
         {isPending && !pending && (
           <p className="mt-3 text-muted-foreground text-sm">
-            {t("assistant:thinking")}
+            {progressTool
+              ? t("assistant:workingOn", { tool: progressTool })
+              : t("assistant:thinking")}
           </p>
         )}
       </div>

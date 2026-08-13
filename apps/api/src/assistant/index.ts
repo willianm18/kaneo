@@ -1,6 +1,7 @@
 import type { Session } from "better-auth/types";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { streamSSE } from "hono/streaming";
 import { describeRoute, validator } from "hono-openapi";
 import * as v from "valibot";
 import { resolveApiBaseUrl } from "../utils/resolve-api-base-url";
@@ -9,7 +10,7 @@ import {
   isAssistantEnabled,
   isVoiceInputEnabled,
 } from "./config";
-import runAssistant from "./controllers/run-assistant";
+import runAssistant, { AssistantStageError } from "./controllers/run-assistant";
 import transcribeAudio, {
   MAX_UPLOAD_SIZE_BYTES,
 } from "./controllers/transcribe";
@@ -94,28 +95,77 @@ const assistant = new Hono<{
 
       const { apiKey, model } = getAssistantConfig();
 
-      const result = await runAssistant({
-        messages,
-        resumeFrom,
-        token,
-        baseUrl: resolveApiBaseUrl(),
-        apiKey,
-        model,
-        workspaceId,
-        projectId,
-        confirmations,
-      });
+      // Streamed instead of a single buffered JSON response: several
+      // sequential OpenRouter round-trips (each tens of seconds) used to
+      // leave the connection sitting at zero bytes until the whole turn
+      // finished, which is longer than reverse proxies (e.g. Traefik's
+      // default 180s idleTimeout) will hold an idle connection open. The
+      // proxy would drop the connection while the backend kept working to
+      // completion, so the browser saw a failure for work that actually
+      // succeeded. Writing an SSE event per tool call keeps bytes flowing
+      // and, as a bonus, lets the UI show progress instead of a static
+      // "thinking" label. The final "result" event carries exactly the same
+      // fields the old JSON response carried, so the confirmation flow
+      // (pendingConfirmation + conversationState + conversationSignature)
+      // is unchanged from the client's perspective.
+      return streamSSE(c, async (stream) => {
+        try {
+          const result = await runAssistant({
+            messages,
+            resumeFrom,
+            token,
+            baseUrl: resolveApiBaseUrl(),
+            apiKey,
+            model,
+            workspaceId,
+            projectId,
+            confirmations,
+            onProgress: async (toolName) => {
+              await stream.writeSSE({
+                event: "progress",
+                data: JSON.stringify({ tool: toolName }),
+              });
+            },
+          });
 
-      if (!result.conversationState) {
-        return c.json(result);
-      }
+          const payload = !result.conversationState
+            ? result
+            : {
+                ...result,
+                conversationSignature: signConversationState(
+                  result.conversationState,
+                  authSecret,
+                ),
+              };
 
-      return c.json({
-        ...result,
-        conversationSignature: signConversationState(
-          result.conversationState,
-          authSecret,
-        ),
+          await stream.writeSSE({
+            event: "result",
+            data: JSON.stringify(payload),
+          });
+        } catch (error) {
+          // The HTTP status is already 200 by the time we get here (headers
+          // were flushed with the first byte of the stream), so a genuine
+          // failure can only be signalled through the stream itself, never
+          // through a status code. We log the real error here — this is the
+          // only place a failure is observed server-side; before this fix
+          // nothing was logged at all, and diagnosing a production incident
+          // required reading the database directly.
+          const stage =
+            error instanceof AssistantStageError ? error.stage : "unknown";
+          const cause =
+            error instanceof AssistantStageError ? error.cause : error;
+          console.error(`assistant chat failed at stage "${stage}":`, cause);
+
+          const message =
+            cause instanceof HTTPException
+              ? cause.message
+              : "Assistant failed to complete the request";
+
+          await stream.writeSSE({
+            event: "error",
+            data: JSON.stringify({ message, stage }),
+          });
+        }
       });
     },
   )

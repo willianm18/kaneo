@@ -18,6 +18,24 @@ const DESTRUCTIVE_TOOLS = new Set([
 
 const MAX_TURNS = 8;
 
+/**
+ * Erro lancado quando uma etapa externa (chamada ao modelo ou execucao de
+ * ferramenta) falha. Carrega `stage` para que quem chama runAssistant
+ * (a rota) consiga logar onde exatamente a falha aconteceu, sem precisar
+ * inspecionar o erro original.
+ */
+export class AssistantStageError extends Error {
+  readonly stage: string;
+  readonly cause: unknown;
+
+  constructor(stage: string, cause: unknown) {
+    super(`Assistant failed at stage: ${stage}`);
+    this.name = "AssistantStageError";
+    this.stage = stage;
+    this.cause = cause;
+  }
+}
+
 export type RunAssistantParams = {
   messages: { role: "user" | "assistant"; content: string }[];
   // Estado exato devolvido junto com um pendingConfirmation. Quando presente,
@@ -31,6 +49,10 @@ export type RunAssistantParams = {
   workspaceId?: string;
   projectId?: string;
   confirmations?: string[];
+  // Chamado logo antes de cada ferramenta ser efetivamente executada (nao
+  // para calls pulados, desconhecidos ou aguardando confirmacao). Usado pela
+  // rota para transmitir progresso via SSE enquanto o turno roda.
+  onProgress?: (toolName: string) => void | Promise<void>;
 };
 
 export type AssistantResult = {
@@ -102,6 +124,7 @@ async function processToolCalls({
   actions,
   byName,
   confirmations,
+  onProgress,
 }: {
   calls: OpenRouterToolCall[];
   skipIds: Set<string>;
@@ -109,6 +132,7 @@ async function processToolCalls({
   actions: { tool: string; summary: string }[];
   byName: Map<string, CollectedTool>;
   confirmations: string[];
+  onProgress?: (toolName: string) => void | Promise<void>;
 }): Promise<AssistantResult | null> {
   for (const call of calls) {
     if (skipIds.has(call.id)) {
@@ -151,7 +175,17 @@ async function processToolCalls({
       continue;
     }
 
-    const result = await tool.execute(args);
+    await onProgress?.(tool.name);
+
+    let result: {
+      content: { type: "text"; text: string }[];
+      isError?: boolean;
+    };
+    try {
+      result = await tool.execute(args);
+    } catch (error) {
+      throw new AssistantStageError(`tool:${tool.name}`, error);
+    }
     const text = toolResultText(result);
 
     if (!result.isError) {
@@ -178,6 +212,7 @@ async function runAssistant({
   workspaceId,
   projectId,
   confirmations = [],
+  onProgress,
 }: RunAssistantParams): Promise<AssistantResult> {
   const tools = collectTools(baseUrl, token);
   const toolDefinitions = toOpenRouterTools(tools);
@@ -225,6 +260,7 @@ async function runAssistant({
         actions,
         byName,
         confirmations,
+        onProgress,
       });
 
       if (pending) {
@@ -234,12 +270,17 @@ async function runAssistant({
   }
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const message = await callOpenRouter({
-      apiKey,
-      model,
-      messages: conversation,
-      tools: toolDefinitions,
-    });
+    let message: OpenRouterMessage;
+    try {
+      message = await callOpenRouter({
+        apiKey,
+        model,
+        messages: conversation,
+        tools: toolDefinitions,
+      });
+    } catch (error) {
+      throw new AssistantStageError(`model-turn-${turn}`, error);
+    }
 
     if (!message.tool_calls?.length) {
       return { reply: message.content ?? "", actions };
@@ -254,6 +295,7 @@ async function runAssistant({
       actions,
       byName,
       confirmations,
+      onProgress,
     });
 
     if (pending) {

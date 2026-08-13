@@ -26,7 +26,9 @@ vi.mock("../../../apps/api/src/assistant/collect-tools", () => ({
   toOpenRouterTools: () => [],
 }));
 
-import runAssistant from "../../../apps/api/src/assistant/controllers/run-assistant";
+import runAssistant, {
+  AssistantStageError,
+} from "../../../apps/api/src/assistant/controllers/run-assistant";
 
 const base = {
   token: "t",
@@ -94,6 +96,44 @@ describe("runAssistant", () => {
     expect(result.actions).toEqual([
       expect.objectContaining({ tool: "create_task" }),
     ]);
+  });
+
+  it("chama onProgress com o nome da ferramenta antes de executa-la", async () => {
+    mockCall
+      .mockResolvedValueOnce(assistantToolCall("c1", "create_task"))
+      .mockResolvedValueOnce(assistantText("criei a tarefa"));
+
+    const onProgress = vi.fn();
+    await runAssistant({ ...base, onProgress });
+
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith("create_task");
+    // onProgress must fire before the tool actually runs, so the caller can
+    // stream a progress event ahead of the (possibly slow) execution.
+    expect(onProgress.mock.invocationCallOrder[0]).toBeLessThan(
+      mockExecute.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("propaga uma falha da ferramenta como AssistantStageError com o estagio da ferramenta", async () => {
+    mockCall.mockResolvedValueOnce(assistantToolCall("c1", "create_task"));
+    mockExecute.mockRejectedValueOnce(new Error("db unreachable"));
+
+    await expect(runAssistant(base)).rejects.toMatchObject({
+      name: "AssistantStageError",
+      stage: "tool:create_task",
+    });
+  });
+
+  it("propaga uma falha do modelo como AssistantStageError com o estagio da volta", async () => {
+    mockCall.mockRejectedValueOnce(new Error("provider unreachable"));
+
+    const error = await runAssistant(base).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(AssistantStageError);
+    expect((error as InstanceType<typeof AssistantStageError>).stage).toBe(
+      "model-turn-0",
+    );
   });
 
   it("NAO executa exclusao sem confirmacao e devolve pendingConfirmation", async () => {
