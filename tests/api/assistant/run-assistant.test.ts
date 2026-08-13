@@ -240,6 +240,45 @@ describe("runAssistant", () => {
     expect(result.reply).toBe("feito");
   });
 
+  it("resposta vazia sem acoes: repete uma vez e usa a segunda resposta", async () => {
+    mockCall
+      .mockResolvedValueOnce(assistantText(""))
+      .mockResolvedValueOnce(assistantText("agora respondi"));
+
+    const result = await runAssistant(base);
+
+    expect(mockCall).toHaveBeenCalledTimes(2);
+    expect(result.reply).toBe("agora respondi");
+    expect(result.actions).toHaveLength(0);
+  });
+
+  it("resposta vazia duas vezes seguidas: falha com AssistantStageError logavel", async () => {
+    mockCall
+      .mockResolvedValueOnce(assistantText("   "))
+      .mockResolvedValueOnce(assistantText(""));
+
+    const error = await runAssistant(base).catch((caught) => caught);
+
+    expect(mockCall).toHaveBeenCalledTimes(2);
+    expect(error).toBeInstanceOf(AssistantStageError);
+    expect((error as InstanceType<typeof AssistantStageError>).stage).toBe(
+      "model-turn-0-retry",
+    );
+  });
+
+  it("resposta vazia apos executar uma ferramenta: NAO repete e avisa sobre aplicacao parcial", async () => {
+    mockCall
+      .mockResolvedValueOnce(assistantToolCall("c1", "create_task"))
+      .mockResolvedValueOnce(assistantText(""));
+
+    const result = await runAssistant(base);
+
+    expect(mockCall).toHaveBeenCalledTimes(2);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(result.reply).toMatch(/parcial|Confira/i);
+    expect(result.actions).toHaveLength(1);
+  });
+
   it("resume ainda recusa um id de confirmacao errado", async () => {
     const resumeFrom = [
       { role: "system", content: "sys" },

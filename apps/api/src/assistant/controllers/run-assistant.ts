@@ -1,3 +1,4 @@
+import { HTTPException } from "hono/http-exception";
 import {
   type CollectedTool,
   collectTools,
@@ -281,6 +282,41 @@ async function runAssistant({
       });
     } catch (error) {
       throw new AssistantStageError(`model-turn-${turn}`, error);
+    }
+
+    if (!message.tool_calls?.length && !message.content?.trim()) {
+      // Empty response from the model. Retrying is only safe when nothing
+      // has been executed yet in this request: if a tool already ran and
+      // the model then returned nothing, retrying could re-run those tools
+      // and duplicate work (the exact bug we hit earlier). In that case we
+      // stop and tell the user to check before repeating instead.
+      if (actions.length > 0) {
+        return {
+          reply:
+            "O modelo nao respondeu, mas parte da solicitacao pode ja ter sido executada. Confira antes de repetir o pedido.",
+          actions,
+        };
+      }
+
+      try {
+        message = await callOpenRouter({
+          apiKey,
+          model,
+          messages: conversation,
+          tools: toolDefinitions,
+        });
+      } catch (error) {
+        throw new AssistantStageError(`model-turn-${turn}-retry`, error);
+      }
+
+      if (!message.tool_calls?.length && !message.content?.trim()) {
+        throw new AssistantStageError(
+          `model-turn-${turn}-retry`,
+          new HTTPException(503, {
+            message: "Assistant provider returned no response, try again",
+          }),
+        );
+      }
     }
 
     if (!message.tool_calls?.length) {
