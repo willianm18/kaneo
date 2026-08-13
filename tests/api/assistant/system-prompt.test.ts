@@ -126,4 +126,25 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("placeholder text");
     expect(prompt).toContain("a definir");
   });
+
+  it("instrui a aplicar um status dito pelo usuario, mesmo no meio da frase, ao criar a tarefa", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain("mid-sentence");
+    expect(prompt.toLowerCase()).toContain(
+      "never silently fall back to the default column",
+    );
+  });
+
+  it("instrui a distinguir pedido de registro de trabalho ja feito, com o trabalho feito como substancia", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain(
+      "a record of work already completed",
+    );
+    expect(prompt.toLowerCase()).toContain("what was done");
+    expect(prompt.toLowerCase()).toContain("what changed as a result");
+    expect(prompt.toLowerCase()).toContain("what is still pending");
+    expect(prompt.toLowerCase()).toContain("the substance of the card");
+  });
 });
