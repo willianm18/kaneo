@@ -1,11 +1,18 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AssistantChat from "./assistant-chat";
 import AssistantLauncher from "./assistant-launcher";
 
 const mockMutateAsync = vi.fn();
 const mockUseGetConfig = vi.fn();
+
+beforeEach(() => {
+  // Default: voice input disabled, so the mic button stays hidden unless a
+  // test explicitly opts in. Tests that need `hasAssistant` still override
+  // this with their own mockReturnValue.
+  mockUseGetConfig.mockReturnValue({ data: { hasVoiceInput: false } });
+});
 
 afterEach(() => {
   cleanup();
@@ -13,6 +20,8 @@ afterEach(() => {
   window.localStorage.clear();
   mockMutateAsync.mockReset();
   mockUseGetConfig.mockReset();
+  mockTranscribeAudio.mockReset();
+  mockToastError.mockReset();
 });
 
 vi.mock("react-i18next", () => ({
@@ -30,6 +39,18 @@ vi.mock("@/hooks/mutations/assistant/use-send-assistant-message", () => ({
 
 vi.mock("@/hooks/queries/config/use-get-config", () => ({
   default: () => mockUseGetConfig(),
+}));
+
+const mockTranscribeAudio = vi.fn();
+
+vi.mock("@/fetchers/assistant/transcribe", () => ({
+  default: (...args: unknown[]) => mockTranscribeAudio(...args),
+}));
+
+const mockToastError = vi.fn();
+
+vi.mock("@/lib/toast", () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args) },
 }));
 
 async function typeAndSend(text: string) {
@@ -206,6 +227,109 @@ describe("AssistantChat", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("create_task")).toBeInTheDocument();
     expect(screen.getByText("assistant:viewTask")).toBeInTheDocument();
+  });
+
+  it("nao mostra o botao de microfone quando hasVoiceInput e falso", () => {
+    mockUseGetConfig.mockReturnValue({ data: { hasVoiceInput: false } });
+
+    render(<AssistantChat />);
+
+    expect(screen.queryByLabelText("assistant:record")).not.toBeInTheDocument();
+  });
+
+  it("mostra o botao de microfone quando hasVoiceInput e verdadeiro", () => {
+    mockUseGetConfig.mockReturnValue({ data: { hasVoiceInput: true } });
+
+    render(<AssistantChat />);
+
+    expect(screen.getByLabelText("assistant:record")).toBeInTheDocument();
+  });
+
+  it("exibe um erro quando a permissao de microfone e negada", async () => {
+    mockUseGetConfig.mockReturnValue({ data: { hasVoiceInput: true } });
+    const getUserMediaMock = vi
+      .fn()
+      .mockRejectedValue(new Error("Permission denied"));
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: getUserMediaMock },
+    });
+    // jsdom has no MediaRecorder global; handleMicClick feature-detects it
+    // before calling getUserMedia, so it must be present for this path.
+    vi.stubGlobal("MediaRecorder", class {});
+
+    render(<AssistantChat />);
+
+    fireEvent.click(screen.getByLabelText("assistant:record"));
+
+    await vi.waitFor(() => {
+      expect(getUserMediaMock).toHaveBeenCalled();
+    });
+    expect(mockToastError).toHaveBeenCalledWith("assistant:micDenied");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("avisa quando gravacao de audio nao esta disponivel no navegador", () => {
+    mockUseGetConfig.mockReturnValue({ data: { hasVoiceInput: true } });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: undefined,
+    });
+
+    render(<AssistantChat />);
+
+    fireEvent.click(screen.getByLabelText("assistant:record"));
+
+    expect(mockToastError).toHaveBeenCalledWith("assistant:micUnavailable");
+  });
+
+  it("transcreve o audio gravado e preenche o campo de mensagem sem enviar", async () => {
+    mockUseGetConfig.mockReturnValue({ data: { hasVoiceInput: true } });
+    mockTranscribeAudio.mockResolvedValue({ text: "texto transcrito" });
+
+    const stopTrack = vi.fn();
+    const fakeStream = {
+      getTracks: () => [{ stop: stopTrack }],
+    } as unknown as MediaStream;
+    const getUserMediaMock = vi.fn().mockResolvedValue(fakeStream);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: getUserMediaMock },
+    });
+
+    class FakeMediaRecorder {
+      mimeType = "audio/webm";
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {}
+      stop() {
+        this.ondataavailable?.({ data: new Blob(["audio"]) });
+        this.onstop?.();
+      }
+    }
+    vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
+
+    render(<AssistantChat />);
+
+    fireEvent.click(screen.getByLabelText("assistant:record"));
+    await vi.waitFor(() => {
+      expect(
+        screen.getByLabelText("assistant:stopRecording"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("assistant:stopRecording"));
+
+    await vi.waitFor(() => {
+      expect(screen.getByLabelText("assistant:placeholder")).toHaveValue(
+        "texto transcrito",
+      );
+    });
+    expect(stopTrack).toHaveBeenCalled();
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 });
 

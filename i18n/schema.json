@@ -8469,6 +8469,27 @@
 				},
 				"close": {
 					"type": "string"
+				},
+				"record": {
+					"type": "string"
+				},
+				"stopRecording": {
+					"type": "string"
+				},
+				"recording": {
+					"type": "string"
+				},
+				"transcribing": {
+					"type": "string"
+				},
+				"micDenied": {
+					"type": "string"
+				},
+				"micUnavailable": {
+					"type": "string"
+				},
+				"transcribeError": {
+					"type": "string"
 				}
 			},
 			"required": [
@@ -8485,7 +8506,14 @@
 				"open",
 				"expand",
 				"collapse",
-				"close"
+				"close",
+				"record",
+				"stopRecording",
+				"recording",
+				"transcribing",
+				"micDenied",
+				"micUnavailable",
+				"transcribeError"
 			]
 		}
 	},

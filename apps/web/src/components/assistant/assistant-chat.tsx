@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { Mic, Square } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -6,8 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type sendAssistantMessage from "@/fetchers/assistant/send-message";
 import type { AssistantMessage } from "@/fetchers/assistant/send-message";
+import transcribeAudio from "@/fetchers/assistant/transcribe";
 import useSendAssistantMessage from "@/hooks/mutations/assistant/use-send-assistant-message";
+import useGetConfig from "@/hooks/queries/config/use-get-config";
 import { cn } from "@/lib/cn";
+import { toast } from "@/lib/toast";
 
 type AssistantChatResponse = Awaited<ReturnType<typeof sendAssistantMessage>>;
 type PendingConfirmation = NonNullable<
@@ -44,6 +48,7 @@ function AssistantChat({
 }: AssistantChatProps) {
   const { t } = useTranslation();
   const nextMessageId = useRef(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -55,6 +60,76 @@ function AssistantChat({
   >(null);
 
   const { mutateAsync, isPending } = useSendAssistantMessage();
+  const { data: config } = useGetConfig();
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+
+  const stopRecording = () => {
+    recorderRef.current?.stop();
+  };
+
+  const startRecording = async () => {
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast.error(t("assistant:micDenied"));
+      return;
+    }
+
+    const recorder = new MediaRecorder(stream);
+    const chunks: Blob[] = [];
+    recorderRef.current = recorder;
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+
+    recorder.onstop = async () => {
+      for (const track of stream.getTracks()) track.stop();
+      setIsRecording(false);
+      recorderRef.current = null;
+
+      if (chunks.length === 0) return;
+
+      setIsTranscribing(true);
+      try {
+        const { text } = await transcribeAudio(
+          new Blob(chunks, { type: recorder.mimeType }),
+        );
+        // O texto entra no campo para revisao: transcricao erra nomes de
+        // maquina e siglas, e um chamado errado custa mais que um clique.
+        setDraft((current) => (current ? `${current} ${text}` : text));
+        textareaRef.current?.focus();
+      } catch (error) {
+        toast.error(
+          error instanceof Error && error.message
+            ? error.message
+            : t("assistant:transcribeError"),
+        );
+      } finally {
+        setIsTranscribing(false);
+      }
+    };
+
+    recorder.start();
+    setIsRecording(true);
+  };
+
+  const handleMicClick = () => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      toast.error(t("assistant:micUnavailable"));
+      return;
+    }
+
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+
+    void startRecording();
+  };
 
   const appendMessage = (
     message: AssistantMessage & {
@@ -230,13 +305,40 @@ function AssistantChat({
 
       <div className="flex items-end gap-2 border-border border-t p-3">
         <Textarea
+          ref={textareaRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={t("assistant:placeholder")}
+          placeholder={
+            isTranscribing
+              ? t("assistant:transcribing")
+              : isRecording
+                ? t("assistant:recording")
+                : t("assistant:placeholder")
+          }
           aria-label={t("assistant:placeholder")}
           disabled={isPending || !!pending}
         />
+        {config?.hasVoiceInput && (
+          <Button
+            variant={isRecording ? "destructive" : "ghost"}
+            size="icon"
+            onClick={handleMicClick}
+            disabled={isPending || !!pending || isTranscribing}
+            aria-label={
+              isRecording ? t("assistant:stopRecording") : t("assistant:record")
+            }
+            title={
+              isRecording ? t("assistant:stopRecording") : t("assistant:record")
+            }
+          >
+            {isRecording ? (
+              <Square className="h-4 w-4" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
+          </Button>
+        )}
         <Button
           onClick={() => void handleSend()}
           disabled={isPending || !!pending || !draft.trim()}

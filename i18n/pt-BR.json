@@ -2145,6 +2145,13 @@
 		"open": "Abrir assistente",
 		"expand": "Expandir",
 		"collapse": "Recolher",
-		"close": "Fechar"
+		"close": "Fechar",
+		"record": "Gravar",
+		"stopRecording": "Parar",
+		"recording": "Gravando...",
+		"transcribing": "Transcrevendo...",
+		"micDenied": "Permissão de microfone negada",
+		"micUnavailable": "Nenhum microfone disponível",
+		"transcribeError": "Não foi possível transcrever o áudio"
 	}
 }

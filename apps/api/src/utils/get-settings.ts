@@ -1,6 +1,6 @@
 import { isSmtpConfigured } from "@kaneo/email";
 import { config } from "dotenv-mono";
-import { isAssistantEnabled } from "../assistant/config";
+import { isAssistantEnabled, isVoiceInputEnabled } from "../assistant/config";
 import { isBillingEnabled } from "../billing/config";
 import { isGithubSsoConfigured } from "./github-sso-env";
 
@@ -30,6 +30,7 @@ function getSettings() {
     customOAuthLogoutUrl: process.env.CUSTOM_OAUTH_LOGOUT_URL || null,
     billingEnabled: isBillingEnabled(),
     hasAssistant: isAssistantEnabled(),
+    hasVoiceInput: isVoiceInputEnabled(),
   };
 }
 

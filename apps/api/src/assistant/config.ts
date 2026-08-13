@@ -21,6 +21,20 @@ export function isAssistantEnabled(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY);
 }
 
+export function isVoiceInputEnabled(): boolean {
+  return Boolean(process.env.ASSEMBLYAI_API_KEY);
+}
+
+export function getVoiceInputConfig(): { apiKey: string } {
+  const apiKey = process.env.ASSEMBLYAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("ASSEMBLYAI_API_KEY is not configured");
+  }
+
+  return { apiKey };
+}
+
 export function getAssistantConfig(): { apiKey: string; model: string } {
   const apiKey = process.env.OPENROUTER_API_KEY;
 

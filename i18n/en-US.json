@@ -2145,6 +2145,13 @@
 		"open": "Open assistant",
 		"expand": "Expand",
 		"collapse": "Collapse",
-		"close": "Close"
+		"close": "Close",
+		"record": "Record",
+		"stopRecording": "Stop",
+		"recording": "Recording...",
+		"transcribing": "Transcribing...",
+		"micDenied": "Microphone permission denied",
+		"micUnavailable": "No microphone available",
+		"transcribeError": "Could not transcribe the audio"
 	}
 }
