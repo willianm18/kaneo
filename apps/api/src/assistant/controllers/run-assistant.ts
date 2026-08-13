@@ -108,6 +108,35 @@ function toolResultText(result: {
   return result.content.map((part) => part.text).join("\n");
 }
 
+// Handled tool errors (isError: true) never throw — the text is fed back
+// to the model so it can self-correct — so nothing about them reaches the
+// route's catch block. Without a log line here, a tool silently failing
+// (bad status slug, task not found, permission denied) leaves no trace at
+// all, even though it's the common failure shape in daily use. Truncated
+// because tool error text can include full stack-ish payloads.
+const TOOL_ERROR_LOG_LENGTH = 500;
+
+function truncateForLog(
+  text: string,
+  maxLength = TOOL_ERROR_LOG_LENGTH,
+): string {
+  return text.length > maxLength
+    ? `${text.slice(0, maxLength)}... (truncated)`
+    : text;
+}
+
+/**
+ * Falhas que terminam o turno com uma mensagem "nao consegui" propria,
+ * em vez de uma resposta normal do modelo. Usado so para o log-resumo de
+ * fim de requisicao (nao muda nada do fluxo em si).
+ */
+function isFailureOutcome(reply: string): boolean {
+  return (
+    reply.startsWith("O modelo nao respondeu") ||
+    reply.startsWith("Nao consegui concluir dentro do limite")
+  );
+}
+
 /**
  * Executa os tool_calls informados, na ordem, respeitando o gate de
  * confirmacao para ferramentas destrutivas. Ids em `skipIds` ja possuem um
@@ -127,6 +156,8 @@ async function processToolCalls({
   byName,
   confirmations,
   onProgress,
+  requestId,
+  toolErrors,
 }: {
   calls: OpenRouterToolCall[];
   skipIds: Set<string>;
@@ -135,6 +166,8 @@ async function processToolCalls({
   byName: Map<string, CollectedTool>;
   confirmations: string[];
   onProgress?: (toolName: string) => void | Promise<void>;
+  requestId: string;
+  toolErrors: { count: number };
 }): Promise<AssistantResult | null> {
   for (const call of calls) {
     if (skipIds.has(call.id)) {
@@ -192,6 +225,14 @@ async function processToolCalls({
 
     if (!result.isError) {
       actions.push({ tool: tool.name, summary: text.slice(0, 200) });
+    } else {
+      toolErrors.count += 1;
+      // Warning, not error: the text still goes into the conversation below
+      // unchanged so the model can try to recover — this is not fatal, just
+      // worth knowing about when a conversation looks off in hindsight.
+      console.warn(
+        `assistant tool call failed (handled) reqId=${requestId} tool=${tool.name} reason="${truncateForLog(text)}"`,
+      );
     }
 
     conversation.push({
@@ -204,18 +245,22 @@ async function processToolCalls({
   return null;
 }
 
-async function runAssistant({
-  messages,
-  resumeFrom,
-  token,
-  baseUrl,
-  apiKey,
-  model,
-  workspaceId,
-  projectId,
-  confirmations = [],
-  onProgress,
-}: RunAssistantParams): Promise<AssistantResult> {
+async function runAssistantTurn(
+  {
+    messages,
+    resumeFrom,
+    token,
+    baseUrl,
+    apiKey,
+    model,
+    workspaceId,
+    projectId,
+    confirmations = [],
+    onProgress,
+  }: RunAssistantParams,
+  requestId: string,
+  toolErrors: { count: number },
+): Promise<AssistantResult> {
   const tools = collectTools(baseUrl, token);
   const toolDefinitions = toOpenRouterTools(tools);
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -263,6 +308,8 @@ async function runAssistant({
         byName,
         confirmations,
         onProgress,
+        requestId,
+        toolErrors,
       });
 
       if (pending) {
@@ -333,6 +380,8 @@ async function runAssistant({
       byName,
       confirmations,
       onProgress,
+      requestId,
+      toolErrors,
     });
 
     if (pending) {
@@ -345,6 +394,47 @@ async function runAssistant({
       "Nao consegui concluir dentro do limite de passos. Tente dividir o pedido em partes menores.",
     actions,
   };
+}
+
+/**
+ * Envelope fino em volta de runAssistantTurn so para o log-resumo de fim de
+ * requisicao: conta erros de ferramenta tratados (isError, nunca lancados) e
+ * — quando houve pelo menos um — registra uma linha dizendo quantos
+ * ocorreram e se o turno terminou com sucesso ou falha. Sem isso, um tool
+ * error tratado nao deixa rastro nenhum no log (ele so aparece de volta na
+ * conversa, para o modelo tentar se recuperar), o que torna impossivel
+ * diagnosticar depois por que o assistente respondeu algo estranho. Nao
+ * loga nada quando nao houve erro de ferramenta, para nao gerar ruido no
+ * caminho feliz.
+ */
+async function runAssistant(
+  params: RunAssistantParams,
+): Promise<AssistantResult> {
+  const requestId =
+    typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  const toolErrors = { count: 0 };
+
+  try {
+    const result = await runAssistantTurn(params, requestId, toolErrors);
+
+    if (toolErrors.count > 0) {
+      const outcome = isFailureOutcome(result.reply) ? "failed" : "succeeded";
+      console.warn(
+        `assistant request summary reqId=${requestId} handledToolErrors=${toolErrors.count} outcome=${outcome}`,
+      );
+    }
+
+    return result;
+  } catch (error) {
+    if (toolErrors.count > 0) {
+      console.warn(
+        `assistant request summary reqId=${requestId} handledToolErrors=${toolErrors.count} outcome=failed`,
+      );
+    }
+    throw error;
+  }
 }
 
 export default runAssistant;

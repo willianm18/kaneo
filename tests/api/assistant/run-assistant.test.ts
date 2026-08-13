@@ -279,6 +279,94 @@ describe("runAssistant", () => {
     expect(result.actions).toHaveLength(1);
   });
 
+  it("loga um aviso com o nome da ferramenta e o motivo quando um tool error tratado ocorre", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExecute.mockResolvedValue({
+      content: [{ type: "text", text: "permission denied" }],
+      isError: true,
+    });
+    mockCall
+      .mockResolvedValueOnce(assistantToolCall("c1", "create_task"))
+      .mockResolvedValueOnce(assistantText("nao consegui: sem permissao"));
+
+    await runAssistant(base);
+
+    const toolErrorLog = warnSpy.mock.calls.find((call) =>
+      String(call[0]).includes("tool call failed"),
+    );
+    expect(toolErrorLog).toBeDefined();
+    expect(String(toolErrorLog?.[0])).toContain("create_task");
+    expect(String(toolErrorLog?.[0])).toContain("permission denied");
+
+    warnSpy.mockRestore();
+  });
+
+  it("nao muda o texto do erro que chega na conversa/resposta do modelo", async () => {
+    mockExecute.mockResolvedValue({
+      content: [{ type: "text", text: "status invalido: xyz" }],
+      isError: true,
+    });
+    mockCall
+      .mockResolvedValueOnce(assistantToolCall("c1", "create_task"))
+      .mockImplementationOnce(async (args) => {
+        const toolMessage = args.messages.find(
+          (m: { role: string; tool_call_id?: string }) =>
+            m.role === "tool" && m.tool_call_id === "c1",
+        );
+        expect(toolMessage.content).toBe("status invalido: xyz");
+        return assistantText("corrigido");
+      });
+
+    const result = await runAssistant(base);
+
+    expect(result.reply).toBe("corrigido");
+  });
+
+  it("loga um resumo de fim de requisicao com a contagem e o resultado final", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExecute
+      .mockResolvedValueOnce({
+        content: [{ type: "text", text: "erro 1" }],
+        isError: true,
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "text", text: "erro 2" }],
+        isError: true,
+      });
+    mockCall
+      .mockResolvedValueOnce(
+        assistantToolCalls([
+          { id: "c1", name: "create_task" },
+          { id: "c2", name: "create_task" },
+        ]),
+      )
+      .mockResolvedValueOnce(assistantText("consegui corrigir"));
+
+    await runAssistant(base);
+
+    const summaryLog = warnSpy.mock.calls.find((call) =>
+      String(call[0]).includes("request summary"),
+    );
+    expect(summaryLog).toBeDefined();
+    expect(String(summaryLog?.[0])).toContain("2");
+    expect(String(summaryLog?.[0])).toContain("succeeded");
+
+    warnSpy.mockRestore();
+  });
+
+  it("nao loga nenhum resumo quando nao ha erro de ferramenta (caminho feliz)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockCall
+      .mockResolvedValueOnce(assistantToolCall("c1", "create_task"))
+      .mockResolvedValueOnce(assistantText("criei a tarefa"));
+
+    await runAssistant(base);
+
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
   it("resume ainda recusa um id de confirmacao errado", async () => {
     const resumeFrom = [
       { role: "system", content: "sys" },
