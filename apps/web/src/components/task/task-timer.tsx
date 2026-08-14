@@ -7,18 +7,11 @@ import useStartTimer from "@/hooks/mutations/time-entry/use-start-timer";
 import useGetTimeEntriesByTaskId from "@/hooks/queries/time-entry/use-get-time-entries";
 import { useTaskTotalTrackedSeconds } from "@/hooks/use-task-total-tracked-seconds";
 import { useWorkspacePermission } from "@/hooks/use-workspace-permission";
+import { formatDuration, formatDurationCompact } from "@/lib/format-duration";
 import { toast } from "@/lib/toast";
 import TaskTotalPopover from "./task-total-popover";
 
-export function formatDuration(totalSeconds: number) {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  return [hours, minutes, seconds]
-    .map((part) => String(part).padStart(2, "0"))
-    .join(":");
-}
+export { formatDuration };
 
 type TaskTimerProps = {
   taskId: string;
@@ -99,7 +92,9 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
             className="text-xs font-semibold font-mono tabular-nums text-muted-foreground px-1 cursor-pointer"
             aria-label={t("tasks:timer.tracked")}
           >
-            {formatDuration(totalTracked)}
+            {isRunning
+              ? formatDuration(totalTracked)
+              : formatDurationCompact(totalTracked)}
           </button>
         </TaskTotalPopover>
       </>
@@ -132,7 +127,9 @@ export default function TaskTimer({ taskId, compact = false }: TaskTimerProps) {
           className="font-mono text-sm tabular-nums cursor-pointer"
           aria-label={t("tasks:timer.tracked")}
         >
-          {formatDuration(totalTracked)}
+          {isRunning
+            ? formatDuration(totalTracked)
+            : formatDurationCompact(totalTracked)}
         </button>
       </TaskTotalPopover>
     </div>

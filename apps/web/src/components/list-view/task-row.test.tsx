@@ -78,6 +78,7 @@ const task: Task = {
   priority: null,
   startDate: null,
   dueDate: null,
+  completedAt: null,
   position: 1,
   createdAt: "2026-08-05T00:00:00.000Z",
   userId: null,
@@ -117,7 +118,7 @@ describe("TaskRow", () => {
       />,
     );
 
-    expect(screen.getByText("01:00:00")).toBeVisible();
+    expect(screen.getByText("1h 0m")).toBeVisible();
     expect(screen.getByText("1h 30m")).toBeVisible();
   });
 
@@ -127,5 +128,25 @@ describe("TaskRow", () => {
     expect(screen.queryByText(/^\d{2}:\d{2}:\d{2}$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^\d+h( \d+m)?$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^\d+m$/)).not.toBeInTheDocument();
+  });
+
+  it("shows the completion date when completedAt is present", () => {
+    render(
+      <TaskRow
+        task={{ ...task, completedAt: "2026-08-09T12:00:00.000Z" }}
+        projectSlug="kan"
+      />,
+    );
+
+    expect(screen.getByText("Aug 9")).toBeVisible();
+    expect(screen.getByTitle("tasks:popover.completedAt.label")).toBeVisible();
+  });
+
+  it("renders no completion element when completedAt is absent", () => {
+    render(<TaskRow task={task} projectSlug="kan" />);
+
+    expect(
+      screen.queryByTitle("tasks:popover.completedAt.label"),
+    ).not.toBeInTheDocument();
   });
 });

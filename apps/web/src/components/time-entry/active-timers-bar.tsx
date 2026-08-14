@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { Pause } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { formatDuration } from "@/components/task/task-timer";
 import { Button } from "@/components/ui/button";
 import usePauseTimer from "@/hooks/mutations/time-entry/use-pause-timer";
 import useActiveTimers from "@/hooks/queries/time-entry/use-active-timers";
 import { useElapsedSeconds } from "@/hooks/use-elapsed-seconds";
+import { formatDuration } from "@/lib/format-duration";
 import { toast } from "@/lib/toast";
 
 type ActiveTimerRowProps = {

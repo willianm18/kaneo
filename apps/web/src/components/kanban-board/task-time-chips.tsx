@@ -1,7 +1,7 @@
 import { Clock, Timer } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { formatEstimate } from "@/lib/format";
-import { formatDuration } from "../task/task-timer";
+import { formatDurationCompact } from "@/lib/format-duration";
 
 type TaskTimeChipsProps = {
   trackedSeconds: number | null | undefined;
@@ -34,7 +34,7 @@ export function TaskTimeChips({
         >
           <Timer className="w-3 h-3" />
           <span className="font-mono tabular-nums">
-            {formatDuration(trackedSeconds)}
+            {formatDurationCompact(trackedSeconds)}
           </span>
         </div>
       )}

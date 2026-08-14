@@ -10,7 +10,7 @@ describe("TaskTimeChips", () => {
   it("renders tracked time and estimate when both are present", () => {
     render(<TaskTimeChips trackedSeconds={3600} estimatedSeconds={5400} />);
 
-    expect(screen.getByText("01:00:00")).toBeVisible();
+    expect(screen.getByText("1h 0m")).toBeVisible();
     expect(screen.getByText("1h 30m")).toBeVisible();
   });
 
@@ -33,8 +33,8 @@ describe("TaskTimeChips", () => {
   it("renders only the tracked chip when only tracked time is present", () => {
     render(<TaskTimeChips trackedSeconds={90} estimatedSeconds={null} />);
 
-    expect(screen.getByText("00:01:30")).toBeVisible();
-    expect(screen.queryByText(/m$/)).not.toBeInTheDocument();
+    expect(screen.getByText("1m")).toBeVisible();
+    expect(screen.queryByText(/^\d{2}:\d{2}:\d{2}$/)).not.toBeInTheDocument();
   });
 
   it("renders only the estimate chip when only the estimate is present", () => {

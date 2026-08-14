@@ -94,7 +94,7 @@ describe("TaskTimer", () => {
     render(<TaskTimer taskId="task-1" />);
 
     expect(screen.getByText("tasks:timer.resume")).toBeInTheDocument();
-    expect(screen.getByText("00:01:00")).toBeInTheDocument();
+    expect(screen.getByText("1m")).toBeInTheDocument();
   });
 
   it("clicar no botao unico pausa uma entrada rodando", () => {
@@ -159,7 +159,7 @@ describe("TaskTimer", () => {
     render(<TaskTimer taskId="task-1" compact />);
 
     // Um unico numero na tela: o total apontado da tarefa.
-    expect(screen.getAllByText("00:00:00")).toHaveLength(1);
+    expect(screen.getAllByText("0m")).toHaveLength(1);
     expect(
       screen.getByRole("button", { name: "tasks:timer.start" }),
     ).toBeInTheDocument();
@@ -213,7 +213,7 @@ describe("TaskTimer", () => {
 
     render(<TaskTimer taskId="task-1" />);
 
-    expect(screen.getByText("00:03:20")).toBeInTheDocument();
+    expect(screen.getByText("3m")).toBeInTheDocument();
   });
 
   it("modo compacto tambem mostra o total apontado apos pausar o timer", () => {
@@ -230,7 +230,7 @@ describe("TaskTimer", () => {
 
     render(<TaskTimer taskId="task-1" compact />);
 
-    expect(screen.getByText("00:03:20")).toBeInTheDocument();
+    expect(screen.getByText("3m")).toBeInTheDocument();
   });
 
   it("soma o trecho em andamento de uma entrada aberta ao total apontado", () => {
@@ -279,7 +279,7 @@ describe("TaskTimer", () => {
 
     render(<TaskTimer taskId="task-1" />);
 
-    fireEvent.click(screen.getByText("01:00:00"));
+    fireEvent.click(screen.getByText("1h 0m"));
 
     const hoursInput = await screen.findByLabelText(
       "tasks:popover.estimate.hours",
@@ -321,6 +321,6 @@ describe("TaskTimer", () => {
     render(<TaskTimer taskId="task-1" />);
 
     expect(screen.getByText("tasks:timer.resume")).toBeInTheDocument();
-    expect(screen.getByText("00:00:42")).toBeInTheDocument();
+    expect(screen.getByText("42s")).toBeInTheDocument();
   });
 });

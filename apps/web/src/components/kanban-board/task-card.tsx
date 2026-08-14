@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { format } from "date-fns";
 import {
   Calendar,
+  CalendarCheck2,
   CalendarClock,
   CalendarX,
   GitMerge,
@@ -277,6 +278,16 @@ function TaskCard({ task, disableDragDrop = false }: TaskCardProps) {
                     getDueDateStatus(task.dueDate, taskIsCompleted) ===
                       "no-due-date") && <Calendar className="w-3 h-3" />}
                   <span>{format(new Date(task.dueDate), "MMM d")}</span>
+                </div>
+              )}
+
+              {task.completedAt && (
+                <div
+                  className="flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-success/10 text-success-foreground"
+                  title={t("tasks:popover.completedAt.label")}
+                >
+                  <CalendarCheck2 className="w-3 h-3" />
+                  <span>{format(new Date(task.completedAt), "MMM d")}</span>
                 </div>
               )}
 
