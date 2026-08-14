@@ -12,6 +12,22 @@ function useStopTimer() {
         queryKey: ["time-entries", variables.taskId],
       });
       queryClient.invalidateQueries({ queryKey: ["active-timers"] });
+      queryClient.invalidateQueries({
+        queryKey: ["task", variables.taskId],
+        refetchType: "all",
+      });
+      // Board/list cards show tracked time and key off ["tasks", projectId],
+      // but this hook only receives taskId. Rather than threading a new
+      // projectId argument through every caller, invalidate the whole
+      // ["tasks"] prefix so every project's board/list is covered.
+      // `refetchType: "all"` matches the fix in
+      // use-send-assistant-message.ts: refetchOnMount is disabled globally
+      // (query-client/index.ts), so a plain invalidate would leave a screen
+      // that isn't currently mounted showing the pre-timer value.
+      queryClient.invalidateQueries({
+        queryKey: ["tasks"],
+        refetchType: "all",
+      });
     },
   });
 }
