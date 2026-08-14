@@ -3,6 +3,7 @@ import { Mic, Square } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import AssistantMarkdown from "@/components/assistant/assistant-markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type sendAssistantMessage from "@/fetchers/assistant/send-message";
@@ -275,7 +276,11 @@ function AssistantChat({
                   message.isError && "bg-destructive/10 text-destructive",
                 )}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                {message.role === "assistant" ? (
+                  <AssistantMarkdown content={message.content} />
+                ) : (
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                )}
                 {message.actions && message.actions.length > 0 && (
                   <div className="mt-2 border-border/50 border-t pt-2 text-xs">
                     <p className="font-medium">{t("assistant:actionsTitle")}</p>
