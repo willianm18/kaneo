@@ -446,6 +446,49 @@ describe("AssistantLauncher arrastar", () => {
     expect(stored).toEqual({ x: 930, y: 700 });
   });
 
+  it("os botoes do cabecalho continuam clicaveis com o painel arrastavel", () => {
+    render(<AssistantLauncher />);
+    fireEvent.click(screen.getByLabelText("assistant:open"));
+    expect(screen.getByLabelText("assistant:placeholder")).toBeInTheDocument();
+
+    // Regressao real: o cabecalho inteiro e area de arrasto e os botoes de
+    // fechar/expandir vivem dentro dele. Um pointerdown no botao iniciava o
+    // arrasto e o setPointerCapture desviava o pointerup para o cabecalho, de
+    // modo que o clique nunca acontecia e a janela ficava impossivel de fechar.
+    //
+    // O jsdom nao implementa setPointerCapture, entao o sintoma exato (clique
+    // engolido) nao e reproduzivel aqui. O que este teste prende e a guarda que
+    // o corrige: um gesto iniciado sobre um botao do cabecalho nao pode mover
+    // o painel. Se a guarda cair, a posicao muda e o teste falha.
+    const closeButton = screen.getByLabelText("assistant:close");
+    const panel = closeButton.closest("div[role='toolbar']")
+      ?.parentElement as HTMLElement;
+    const positionBefore = panel.style.left;
+
+    fireEvent.pointerDown(closeButton, {
+      pointerId: 7,
+      clientX: 500,
+      clientY: 300,
+    });
+    fireEvent.pointerMove(closeButton, {
+      pointerId: 7,
+      clientX: 620,
+      clientY: 430,
+    });
+    fireEvent.pointerUp(closeButton, {
+      pointerId: 7,
+      clientX: 620,
+      clientY: 430,
+    });
+
+    expect(panel.style.left).toBe(positionBefore);
+
+    fireEvent.click(closeButton);
+    expect(
+      screen.queryByLabelText("assistant:placeholder"),
+    ).not.toBeInTheDocument();
+  });
+
   it("restaura a posicao salva do localStorage", () => {
     window.localStorage.setItem(
       POSITION_STORAGE_KEY,

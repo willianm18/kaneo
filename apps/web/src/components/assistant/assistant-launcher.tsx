@@ -158,6 +158,20 @@ function useDraggable(
       if (!enabled) {
         return;
       }
+      // O cabecalho inteiro arrasta, mas os botoes de expandir e fechar vivem
+      // dentro dele. Sem esta guarda, o setPointerCapture abaixo desvia o
+      // pointerup para o cabecalho e o clique no botao nunca acontece — foi
+      // assim que a janela do chat ficou impossivel de fechar.
+      //
+      // A comparacao com currentTarget e o que preserva o arrasto do botao
+      // recolhido: ali o proprio elemento arrastavel e um <button>, entao a
+      // guarda so pode valer para controles aninhados dentro da area de arrasto.
+      const interactive = (event.target as HTMLElement).closest(
+        "button, a, input, textarea",
+      );
+      if (interactive && interactive !== event.currentTarget) {
+        return;
+      }
       const el = containerRef.current;
       if (!el) {
         return;
