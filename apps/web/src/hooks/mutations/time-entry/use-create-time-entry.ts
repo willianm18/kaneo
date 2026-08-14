@@ -11,11 +11,15 @@ function useCreateTimeEntry() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["time-entries", variables.taskId],
+        refetchType: "all",
       });
       // Creating an entry (e.g. via the assistant or a manual log) can
       // introduce a new open entry, which changes what the active-timers
       // bar shows.
-      queryClient.invalidateQueries({ queryKey: ["active-timers"] });
+      queryClient.invalidateQueries({
+        queryKey: ["active-timers"],
+        refetchType: "all",
+      });
       queryClient.invalidateQueries({
         queryKey: ["task", variables.taskId],
         refetchType: "all",

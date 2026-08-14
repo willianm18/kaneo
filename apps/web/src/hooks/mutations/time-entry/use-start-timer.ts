@@ -10,8 +10,12 @@ function useStartTimer() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["time-entries", variables.taskId],
+        refetchType: "all",
       });
-      queryClient.invalidateQueries({ queryKey: ["active-timers"] });
+      queryClient.invalidateQueries({
+        queryKey: ["active-timers"],
+        refetchType: "all",
+      });
       queryClient.invalidateQueries({
         queryKey: ["task", variables.taskId],
         refetchType: "all",

@@ -11,11 +11,15 @@ function useUpdateTimeEntry(taskId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["time-entries", taskId],
+        refetchType: "all",
       });
       // Editing an entry's duration can change whether it counts as the
       // user's open/running entry for this task, which the active-timers
       // bar reads.
-      queryClient.invalidateQueries({ queryKey: ["active-timers"] });
+      queryClient.invalidateQueries({
+        queryKey: ["active-timers"],
+        refetchType: "all",
+      });
       queryClient.invalidateQueries({
         queryKey: ["task", taskId],
         refetchType: "all",

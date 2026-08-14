@@ -41,8 +41,14 @@ describe("useStartTimer", () => {
 
     const calls = mockInvalidateQueries.mock.calls.map((call) => call[0]);
 
-    expect(calls).toContainEqual({ queryKey: ["time-entries", "task-1"] });
-    expect(calls).toContainEqual({ queryKey: ["active-timers"] });
+    expect(calls).toContainEqual({
+      queryKey: ["time-entries", "task-1"],
+      refetchType: "all",
+    });
+    expect(calls).toContainEqual({
+      queryKey: ["active-timers"],
+      refetchType: "all",
+    });
     expect(calls).toContainEqual({
       queryKey: ["task", "task-1"],
       refetchType: "all",
