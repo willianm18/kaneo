@@ -94,64 +94,84 @@ type DragState = {
 
 /**
  * Makes `containerRef` draggable via pointer events on whatever handle
- * triggers `onPointerDown`. Position is expressed as the container's
- * top-left corner in viewport pixels, restored from and persisted to
- * localStorage, and re-clamped on mount and on window resize so a position
- * saved on a larger screen can't strand the element off-screen.
+ * triggers `onPointerDown`.
+ *
+ * The button and the chat window are two different-sized views of the SAME
+ * position: `sharedPosition`/`setSharedPosition` are lifted to the caller
+ * (`AssistantLauncher`) and persisted once, from a single spot, so moving
+ * either one moves the other and there is exactly one value in
+ * localStorage. This hook only ever *re-clamps that shared value against
+ * its own element's size for display* (`position` below) — it never writes
+ * a clamped value back to the shared position. If it did, opening the
+ * (much larger) window would permanently overwrite a position that was
+ * perfectly valid for the (much smaller) button, corrupting where the
+ * button reopens later. The shared position only advances on an actual
+ * drag of that element, which is a deliberate new position for both.
  *
  * `enabled` controls whether dragging (and the stored position) applies at
  * all — the full-height "panel" mode ignores it and stays docked to the
- * edge of the screen.
+ * edge of the screen. `visible` marks whether this element is the one
+ * currently mounted, so the display position gets recomputed against its
+ * real size the moment it appears (e.g. right after the window closes and
+ * the button reappears).
  */
 function useDraggable(
   containerRef: React.RefObject<HTMLElement | null>,
   enabled: boolean,
+  visible: boolean,
+  sharedPosition: Position | null,
+  setSharedPosition: (position: Position) => void,
 ) {
   const [position, setPosition] = useState<Position | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStateRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
 
-  // On mount (and whenever dragging becomes enabled for this element),
-  // restore + clamp the stored position against this element's actual size.
+  // Whenever this element becomes the visible one, or the shared position
+  // changes (because the other element was just dragged), re-clamp against
+  // this element's actual size for display only — see the doc comment above
+  // for why this must not be written back to the shared position.
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !visible) {
+      return;
+    }
+    if (sharedPosition === null) {
       setPosition(null);
       return;
     }
-    const stored = readStoredPosition();
     const el = containerRef.current;
-    if (!stored || !el) {
+    if (!el) {
+      setPosition(sharedPosition);
       return;
     }
     const rect = el.getBoundingClientRect();
     setPosition(
-      clampPosition(stored, { width: rect.width, height: rect.height }),
+      clampPosition(sharedPosition, { width: rect.width, height: rect.height }),
     );
-  }, [enabled, containerRef]);
+  }, [enabled, visible, sharedPosition, containerRef]);
 
   // Re-clamp on viewport resize so a stranded-off-screen position is pulled
   // back into view rather than left there until the next drag.
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !visible) {
       return;
     }
     const handleResize = () => {
       const el = containerRef.current;
-      if (!el) {
+      if (!el || sharedPosition === null) {
         return;
       }
-      setPosition((prev) => {
-        if (!prev) {
-          return prev;
-        }
-        const rect = el.getBoundingClientRect();
-        return clampPosition(prev, { width: rect.width, height: rect.height });
-      });
+      const rect = el.getBoundingClientRect();
+      setPosition(
+        clampPosition(sharedPosition, {
+          width: rect.width,
+          height: rect.height,
+        }),
+      );
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [enabled, containerRef]);
+  }, [enabled, visible, sharedPosition, containerRef]);
 
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent) => {
@@ -221,24 +241,30 @@ function useDraggable(
     [containerRef],
   );
 
-  const endDrag = useCallback((event: ReactPointerEvent) => {
-    const state = dragStateRef.current;
-    if (!state || state.pointerId !== event.pointerId) {
-      return;
-    }
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-    dragStateRef.current = null;
-    setIsDragging(false);
-    if (state.moved) {
-      suppressClickRef.current = true;
-      setPosition((prev) => {
-        if (prev) {
-          writeStoredPosition(prev);
-        }
-        return prev;
-      });
-    }
-  }, []);
+  const endDrag = useCallback(
+    (event: ReactPointerEvent) => {
+      const state = dragStateRef.current;
+      if (!state || state.pointerId !== event.pointerId) {
+        return;
+      }
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+      dragStateRef.current = null;
+      setIsDragging(false);
+      if (state.moved) {
+        suppressClickRef.current = true;
+        setPosition((prev) => {
+          if (prev) {
+            // A finished drag is a deliberate new position for this
+            // element: promote it to the shared position (and persist it)
+            // so the other element picks it up too.
+            setSharedPosition(prev);
+          }
+          return prev;
+        });
+      }
+    },
+    [setSharedPosition],
+  );
 
   // Consumed once by the click handler on the same element: a drag that
   // just ended must not also fire the underlying click.
@@ -278,10 +304,35 @@ function AssistantLauncher() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Single source of truth for the position, shared by the button and the
+  // chat window: whichever one gets dragged writes here (and to
+  // localStorage), so closing the window leaves the button where the window
+  // was and opening it puts it where the button was. See useDraggable's doc
+  // comment for why each element still clamps its own display separately.
+  const [sharedPosition, setSharedPositionState] = useState<Position | null>(
+    readStoredPosition,
+  );
+  const setSharedPosition = useCallback((next: Position) => {
+    setSharedPositionState(next);
+    writeStoredPosition(next);
+  }, []);
+
   // The full-height "panel" mode stays docked to the screen edge — only the
   // floating button and the bubble chat window are draggable.
-  const buttonDrag = useDraggable(buttonRef, true);
-  const panelDrag = useDraggable(panelRef, mode === "bubble");
+  const buttonDrag = useDraggable(
+    buttonRef,
+    true,
+    !isOpen,
+    sharedPosition,
+    setSharedPosition,
+  );
+  const panelDrag = useDraggable(
+    panelRef,
+    mode === "bubble",
+    isOpen && mode === "bubble",
+    sharedPosition,
+    setSharedPosition,
+  );
 
   if (!config?.hasAssistant) {
     return null;

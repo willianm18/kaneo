@@ -516,4 +516,117 @@ describe("AssistantLauncher arrastar", () => {
     expect(button.style.left).toBe(`${1024 - 56}px`);
     expect(button.style.top).toBe(`${768 - 56}px`);
   });
+
+  it("mover o botao e depois abrir a janela reaproveita a mesma posicao", () => {
+    render(<AssistantLauncher />);
+    const button = screen.getByLabelText("assistant:open");
+
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: 900, clientY: 600 });
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 930, clientY: 700 });
+    fireEvent.pointerUp(button, { pointerId: 1, clientX: 930, clientY: 700 });
+    // The click that immediately follows a real drag is suppressed (see the
+    // "sem disparar o clique" test above) — a second, separate click is what
+    // actually opens the chat here.
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    const closeButton = screen.getByLabelText("assistant:close");
+    const panel = closeButton.closest("div[role='toolbar']")
+      ?.parentElement as HTMLElement;
+
+    // O botao foi arrastado para (930, 700); a janela deve abrir exatamente
+    // ali, nao na posicao antiga guardada separadamente para o painel.
+    expect(panel.style.left).toBe("930px");
+    expect(panel.style.top).toBe("700px");
+  });
+
+  it("mover a janela e depois fechar deixa o botao na mesma posicao", () => {
+    render(<AssistantLauncher />);
+    fireEvent.click(screen.getByLabelText("assistant:open"));
+
+    const closeButton = screen.getByLabelText("assistant:close");
+    const header = closeButton.closest("div[role='toolbar']") as HTMLElement;
+    const panel = header.parentElement as HTMLElement;
+
+    fireEvent.pointerDown(header, {
+      pointerId: 3,
+      clientX: 500,
+      clientY: 300,
+    });
+    fireEvent.pointerMove(header, {
+      pointerId: 3,
+      clientX: 540,
+      clientY: 260,
+    });
+    fireEvent.pointerUp(header, { pointerId: 3, clientX: 540, clientY: 260 });
+
+    // dx=40, dy=-40 from the panel's mocked starting corner (900, 600).
+    expect(panel.style.left).toBe("940px");
+    expect(panel.style.top).toBe("560px");
+
+    fireEvent.click(closeButton);
+
+    const button = screen.getByLabelText("assistant:open");
+    // A janela foi arrastada para (940, 560) e fechada; o botao deve
+    // reaparecer exatamente ali, nao na posicao antiga guardada
+    // separadamente para o botao.
+    expect(button.style.left).toBe("940px");
+    expect(button.style.top).toBe("560px");
+  });
+
+  it("uma posicao compartilhada que estouraria a janela maior e reenquadrada ao abrir", () => {
+    // The button (56x56) fits fine at (960, 700) on the 1024x768 viewport,
+    // but the much larger chat window does not — it must be re-clamped
+    // against its own size when it opens, without that clamp corrupting the
+    // stored position (which stays valid for the button).
+    window.localStorage.setItem(
+      POSITION_STORAGE_KEY,
+      JSON.stringify({ x: 960, y: 700 }),
+    );
+
+    (
+      HTMLElement.prototype.getBoundingClientRect as unknown as ReturnType<
+        typeof vi.fn
+      >
+    ).mockRestore();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const isButton = this.tagName === "BUTTON";
+        const width = isButton ? 56 : 380;
+        const height = isButton ? 56 : 600;
+        return {
+          width,
+          height,
+          left: 960,
+          top: 700,
+          right: 960 + width,
+          bottom: 700 + height,
+          x: 960,
+          y: 700,
+          toJSON() {},
+        } as DOMRect;
+      },
+    );
+
+    render(<AssistantLauncher />);
+    const button = screen.getByLabelText("assistant:open");
+    expect(button.style.left).toBe("960px");
+    expect(button.style.top).toBe("700px");
+
+    fireEvent.click(button);
+
+    const closeButton = screen.getByLabelText("assistant:close");
+    const panel = closeButton.closest("div[role='toolbar']")
+      ?.parentElement as HTMLElement;
+
+    expect(panel.style.left).toBe(`${1024 - 380}px`);
+    expect(panel.style.top).toBe(`${768 - 600}px`);
+
+    // The clamp above must be display-only: the raw shared position stored
+    // for the button must stay untouched.
+    const stored = JSON.parse(
+      window.localStorage.getItem(POSITION_STORAGE_KEY) ?? "null",
+    );
+    expect(stored).toEqual({ x: 960, y: 700 });
+  });
 });
