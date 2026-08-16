@@ -2156,6 +2156,7 @@
 		"micDenied": "Microphone permission denied",
 		"micUnavailable": "No microphone available",
 		"transcribeError": "Could not transcribe the audio",
-		"dragHandle": "Drag to move the assistant"
+		"dragHandle": "Drag to move the assistant",
+		"newConversation": "New conversation"
 	}
 }

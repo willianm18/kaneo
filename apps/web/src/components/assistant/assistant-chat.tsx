@@ -1,8 +1,15 @@
 import { Link } from "@tanstack/react-router";
-import { Mic, Square } from "lucide-react";
+import { Mic, Square, SquarePen } from "lucide-react";
 import type { KeyboardEvent } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  conversationStorageKey,
+  loadConversation,
+  MAX_STORED_MESSAGES,
+  type StoredMessage,
+  saveConversation,
+} from "@/components/assistant/assistant-chat-storage";
 import AssistantMarkdown from "@/components/assistant/assistant-markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -66,10 +73,18 @@ function AssistantChat({
   className,
 }: AssistantChatProps) {
   const { t } = useTranslation();
-  const nextMessageId = useRef(0);
+  const storageKey = conversationStorageKey(workspaceId, projectId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  // Restore the settled conversation for this context on mount (and whenever
+  // the context changes). `nextMessageId` continues past the restored ids so
+  // freshly appended messages never collide with them.
+  const [messages, setMessages] = useState<DisplayMessage[]>(() =>
+    loadConversation(storageKey),
+  );
+  const nextMessageId = useRef(
+    messages.reduce((max, message) => Math.max(max, message.id + 1), 0),
+  );
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
   const [conversationState, setConversationState] =
@@ -84,6 +99,34 @@ function AssistantChat({
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
+
+  // When the context (workspace/project) changes while mounted, swap to that
+  // context's stored conversation so each project keeps its own history. The
+  // ref guards against re-running on the initial render, whose state already
+  // came from `loadConversation` in the initializer above.
+  const loadedKeyRef = useRef(storageKey);
+  useEffect(() => {
+    if (loadedKeyRef.current === storageKey) {
+      return;
+    }
+    loadedKeyRef.current = storageKey;
+    const restored = loadConversation(storageKey);
+    nextMessageId.current = restored.reduce(
+      (max, message) => Math.max(max, message.id + 1),
+      0,
+    );
+    setMessages(restored);
+    setPending(null);
+    setConversationState(null);
+    setConversationSignature(null);
+  }, [storageKey]);
+
+  // Persist the settled history on every change. Pending confirmations and
+  // in-flight progress live in separate state and are deliberately never
+  // stored, so a reopened window always starts those fresh.
+  useEffect(() => {
+    saveConversation(storageKey, messages as StoredMessage[]);
+  }, [storageKey, messages]);
 
   const stopRecording = () => {
     recorderRef.current?.stop();
@@ -158,13 +201,23 @@ function AssistantChat({
     },
   ) => {
     const id = nextMessageId.current++;
-    setMessages((prev) => [...prev, { ...message, id }]);
+    setMessages((prev) =>
+      [...prev, { ...message, id }].slice(-MAX_STORED_MESSAGES),
+    );
   };
 
   const clearPendingConfirmation = () => {
     setPending(null);
     setConversationState(null);
     setConversationSignature(null);
+  };
+
+  const handleNewConversation = () => {
+    setMessages([]);
+    setDraft("");
+    clearPendingConfirmation();
+    setProgressTool(null);
+    nextMessageId.current = 0;
   };
 
   const applyResult = (result: AssistantChatResponse) => {
@@ -258,6 +311,19 @@ function AssistantChat({
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
+      {messages.length > 0 && (
+        <div className="flex shrink-0 justify-end border-border border-b px-3 py-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleNewConversation}
+            disabled={isPending || !!pending}
+          >
+            <SquarePen className="size-4" />
+            {t("assistant:newConversation")}
+          </Button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {messages.length === 0 ? (
           <p className="text-muted-foreground text-sm">

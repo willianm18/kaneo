@@ -334,6 +334,124 @@ describe("AssistantChat", () => {
   });
 });
 
+describe("AssistantChat persistencia da conversa", () => {
+  it("restaura a conversa apos desmontar e montar de novo", async () => {
+    mockMutateAsync.mockResolvedValue({
+      reply: "Resposta que deve persistir.",
+      actions: [],
+    });
+
+    const first = render(
+      <AssistantChat workspaceId="ws-1" projectId="proj-1" />,
+    );
+
+    await typeAndSend("Mensagem persistida");
+    expect(
+      await screen.findByText("Resposta que deve persistir."),
+    ).toBeInTheDocument();
+
+    // Fechar a janela desmonta o AssistantChat; ao reabrir uma nova instancia
+    // e montada e deve recuperar o historico do localStorage.
+    first.unmount();
+
+    render(<AssistantChat workspaceId="ws-1" projectId="proj-1" />);
+
+    expect(screen.getByText("Mensagem persistida")).toBeInTheDocument();
+    expect(
+      screen.getByText("Resposta que deve persistir."),
+    ).toBeInTheDocument();
+  });
+
+  it("o controle de nova conversa esvazia o historico persistido", async () => {
+    mockMutateAsync.mockResolvedValue({
+      reply: "Resposta a ser apagada.",
+      actions: [],
+    });
+
+    const view = render(
+      <AssistantChat workspaceId="ws-1" projectId="proj-1" />,
+    );
+
+    await typeAndSend("Mensagem a apagar");
+    expect(
+      await screen.findByText("Resposta a ser apagada."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("assistant:newConversation"));
+
+    expect(screen.getByText("assistant:empty")).toBeInTheDocument();
+    expect(screen.queryByText("Mensagem a apagar")).not.toBeInTheDocument();
+
+    // O localStorage tambem foi limpo: remontar nao traz a conversa de volta.
+    view.unmount();
+    render(<AssistantChat workspaceId="ws-1" projectId="proj-1" />);
+    expect(screen.getByText("assistant:empty")).toBeInTheDocument();
+    expect(screen.queryByText("Mensagem a apagar")).not.toBeInTheDocument();
+  });
+
+  it("contextos de projeto diferentes mantem historicos separados", async () => {
+    mockMutateAsync.mockResolvedValue({
+      reply: "Resposta do projeto A.",
+      actions: [],
+    });
+
+    const projectA = render(
+      <AssistantChat workspaceId="ws-1" projectId="proj-A" />,
+    );
+    await typeAndSend("Mensagem do projeto A");
+    expect(
+      await screen.findByText("Resposta do projeto A."),
+    ).toBeInTheDocument();
+    projectA.unmount();
+
+    // Outro projeto comeca vazio, sem misturar com o historico do projeto A.
+    const projectB = render(
+      <AssistantChat workspaceId="ws-1" projectId="proj-B" />,
+    );
+    expect(screen.getByText("assistant:empty")).toBeInTheDocument();
+    expect(screen.queryByText("Mensagem do projeto A")).not.toBeInTheDocument();
+    projectB.unmount();
+
+    // Voltar ao projeto A recupera exatamente o historico dele.
+    render(<AssistantChat workspaceId="ws-1" projectId="proj-A" />);
+    expect(screen.getByText("Mensagem do projeto A")).toBeInTheDocument();
+    expect(screen.getByText("Resposta do projeto A.")).toBeInTheDocument();
+  });
+
+  it("nao persiste uma confirmacao pendente: reabrir comeca sem o bloco", async () => {
+    mockMutateAsync.mockResolvedValue({
+      reply: "",
+      actions: [],
+      pendingConfirmation: {
+        toolCallId: "call-1",
+        tool: "delete_task",
+        description: 'delete_task {"id":"task-9"}',
+      },
+      conversationState: [{ role: "system", content: "..." }],
+      conversationSignature: "sig-abc",
+    });
+
+    const view = render(
+      <AssistantChat workspaceId="ws-1" projectId="proj-1" />,
+    );
+
+    await typeAndSend("Apague a tarefa 9");
+    expect(
+      await screen.findByText("assistant:confirmTitle"),
+    ).toBeInTheDocument();
+
+    // Fechar no meio da confirmacao e reabrir: a mensagem do usuario persiste,
+    // mas o bloco de confirmacao pendente nao — comeca limpo nesse estado.
+    view.unmount();
+    render(<AssistantChat workspaceId="ws-1" projectId="proj-1" />);
+
+    expect(screen.getByText("Apague a tarefa 9")).toBeInTheDocument();
+    expect(
+      screen.queryByText("assistant:confirmTitle"),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("AssistantLauncher", () => {
   it("nao renderiza nada quando o assistente esta desabilitado", () => {
     mockUseGetConfig.mockReturnValue({ data: { hasAssistant: false } });
