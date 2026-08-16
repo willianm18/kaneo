@@ -8,8 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // controls the env var exclusively.
 vi.mock("dotenv-mono", () => ({ config: () => {} }));
 
-const originalEnv = process.env.ASSEMBLYAI_API_KEY;
+const originalAssemblyKey = process.env.ASSEMBLYAI_API_KEY;
+const originalGroqKey = process.env.GROQ_API_KEY;
+const originalProvider = process.env.STT_PROVIDER;
 const originalFetch = global.fetch;
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return {
@@ -22,11 +32,19 @@ function jsonResponse(body: unknown, ok = true, status = 200) {
 describe("transcribeAudio", () => {
   beforeEach(() => {
     vi.resetModules();
+    // Clear any vi.doMock left over from a previous test — doMock registrations
+    // survive resetModules() and would otherwise leak the config stub into
+    // later imports of the real config/controller modules.
+    vi.doUnmock("../../../apps/api/src/assistant/config");
     process.env.ASSEMBLYAI_API_KEY = "test-key";
+    delete process.env.GROQ_API_KEY;
+    delete process.env.STT_PROVIDER;
   });
 
   afterEach(() => {
-    process.env.ASSEMBLYAI_API_KEY = originalEnv;
+    restoreEnv("ASSEMBLYAI_API_KEY", originalAssemblyKey);
+    restoreEnv("GROQ_API_KEY", originalGroqKey);
+    restoreEnv("STT_PROVIDER", originalProvider);
     global.fetch = originalFetch;
     vi.restoreAllMocks();
   });
@@ -147,6 +165,7 @@ describe("transcribeAudio", () => {
         throw new Error("ASSEMBLYAI_API_KEY is not configured");
       },
       isVoiceInputEnabled: () => false,
+      getSttProvider: () => "assemblyai",
     }));
 
     const { default: transcribeAudio } = await import(
@@ -172,5 +191,113 @@ describe("transcribeAudio", () => {
       status: 413,
     });
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  describe("provedor Groq", () => {
+    beforeEach(() => {
+      delete process.env.ASSEMBLYAI_API_KEY;
+      process.env.GROQ_API_KEY = "groq-key";
+      process.env.STT_PROVIDER = "groq";
+    });
+
+    it("faz uma unica chamada e retorna o texto no caminho feliz", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ text: "ola groq" }));
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      const { default: transcribeAudio } = await import(
+        "../../../apps/api/src/assistant/controllers/transcribe"
+      );
+
+      const result = await transcribeAudio(new ArrayBuffer(10));
+
+      expect(result).toEqual({ text: "ola groq" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const call = fetchMock.mock.calls[0];
+      expect(call[0]).toBe(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+      );
+      expect(call[1].headers.authorization).toBe("Bearer groq-key");
+      expect(call[1].body).toBeInstanceOf(FormData);
+
+      const form = call[1].body as FormData;
+      expect(form.get("model")).toBe("whisper-large-v3-turbo");
+      expect(form.get("language")).toBe("pt");
+      expect(form.get("response_format")).toBe("json");
+    });
+
+    it("lanca HTTPException quando o Groq retorna erro", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: async () => "invalid audio",
+      } as Response);
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      const { default: transcribeAudio } = await import(
+        "../../../apps/api/src/assistant/controllers/transcribe"
+      );
+
+      await expect(transcribeAudio(new ArrayBuffer(10))).rejects.toMatchObject({
+        status: 502,
+      });
+    });
+
+    it("rejeita audio maior que o limite antes de chamar a rede", async () => {
+      global.fetch = vi.fn() as unknown as typeof fetch;
+
+      const { default: transcribeAudio, MAX_UPLOAD_SIZE_BYTES } = await import(
+        "../../../apps/api/src/assistant/controllers/transcribe"
+      );
+
+      const oversized = new ArrayBuffer(MAX_UPLOAD_SIZE_BYTES + 1);
+
+      await expect(transcribeAudio(oversized)).rejects.toMatchObject({
+        status: 413,
+      });
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("isVoiceInputEnabled", () => {
+    it("usa a chave do AssemblyAI quando nenhum provedor esta definido", async () => {
+      process.env.ASSEMBLYAI_API_KEY = "test-key";
+      delete process.env.GROQ_API_KEY;
+      delete process.env.STT_PROVIDER;
+
+      const { isVoiceInputEnabled } = await import(
+        "../../../apps/api/src/assistant/config"
+      );
+
+      expect(isVoiceInputEnabled()).toBe(true);
+    });
+
+    it("fica desabilitado com STT_PROVIDER=groq e apenas a chave do AssemblyAI", async () => {
+      process.env.ASSEMBLYAI_API_KEY = "test-key";
+      delete process.env.GROQ_API_KEY;
+      process.env.STT_PROVIDER = "groq";
+
+      const { isVoiceInputEnabled } = await import(
+        "../../../apps/api/src/assistant/config"
+      );
+
+      expect(isVoiceInputEnabled()).toBe(false);
+    });
+
+    it("fica habilitado com STT_PROVIDER=groq e a chave do Groq", async () => {
+      delete process.env.ASSEMBLYAI_API_KEY;
+      process.env.GROQ_API_KEY = "groq-key";
+      process.env.STT_PROVIDER = "groq";
+
+      const { isVoiceInputEnabled } = await import(
+        "../../../apps/api/src/assistant/config"
+      );
+
+      expect(isVoiceInputEnabled()).toBe(true);
+    });
   });
 });

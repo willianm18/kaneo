@@ -174,7 +174,7 @@ const assistant = new Hono<{
     describeRoute({
       operationId: "assistantTranscribe",
       tags: ["Assistant"],
-      description: "Transcribe an audio recording to text via AssemblyAI",
+      description: "Transcribe an audio recording to text",
       responses: {
         200: { description: "Transcribed text" },
         400: { description: "Voice input is not enabled or audio is missing" },
