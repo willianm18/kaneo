@@ -244,8 +244,31 @@ function AssistantChat({
     const text = draft.trim();
     if (!text || isPending || pending) return;
 
+    // The backend receives only {role, content}, so the ids of tasks the
+    // assistant created/updated in earlier turns are otherwise lost — and a
+    // follow-up like "add dates to it" has no id to update, so the model
+    // creates a duplicate. Re-attach the affected task ids (parsed from each
+    // turn's executed actions) to that turn's content, visible to the model
+    // but not shown to the user.
     const history: AssistantMessage[] = [
-      ...messages.map(({ role, content }) => ({ role, content })),
+      ...messages.map(({ role, content, actions }) => {
+        const ids =
+          role === "assistant" && actions?.length
+            ? [
+                ...new Set(
+                  actions
+                    .map((action) => extractTaskId(action.summary))
+                    .filter((id): id is string => id !== null),
+                ),
+              ]
+            : [];
+        return ids.length > 0
+          ? {
+              role,
+              content: `${content}\n\n[sistema: nesta conversa voce ja atuou sobre a(s) tarefa(s) de id ${ids.join(", ")}. Para alterar uma delas, use update_task com esse id — nao crie outra.]`,
+            }
+          : { role, content };
+      }),
       { role: "user", content: text },
     ];
     appendMessage({ role: "user", content: text });
