@@ -112,6 +112,18 @@ function formatOptionalIso(value: unknown): string | undefined {
   return undefined;
 }
 
+// Task start/due dates are date-only in Kaneo's UI, but the model emits them
+// as datetimes. If it sends midnight UTC (e.g. 2026-08-10T00:00:00.000Z), the
+// board displays `new Date(iso)` in the viewer's local zone, so a UTC-3 user
+// sees the previous day (Aug 9). Anchoring the model's own calendar date at
+// noon UTC keeps the displayed day correct for every zone from UTC-11 to +11.
+// The date the model wrote is the first 10 chars of a schema-validated ISO
+// string, so slicing is safe.
+function toDateOnlyNoonUtc(iso: string | undefined): string | undefined {
+  if (iso === undefined) return undefined;
+  return `${iso.slice(0, 10)}T12:00:00.000Z`;
+}
+
 function buildFullTaskUpdateBody(
   existing: Record<string, unknown>,
   patch: Record<string, unknown>,
@@ -598,8 +610,10 @@ export function registerMcpTools(
         priority: args.priority,
         status: args.status,
       };
-      if (args.startDate !== undefined) body.startDate = args.startDate;
-      if (args.dueDate !== undefined) body.dueDate = args.dueDate;
+      if (args.startDate !== undefined)
+        body.startDate = toDateOnlyNoonUtc(args.startDate);
+      if (args.dueDate !== undefined)
+        body.dueDate = toDateOnlyNoonUtc(args.dueDate);
       if (args.userId !== undefined) body.userId = args.userId;
       return run(() =>
         client.json(`/api/task/${encodeURIComponent(args.projectId)}`, {
@@ -614,7 +628,7 @@ export function registerMcpTools(
     "update_task",
     {
       description:
-        "Update a task (fetches current task, merges fields, then full update).",
+        "Update a task (fetches current task, merges fields, then full update). `estimateMinutes` sets the time estimate in MINUTES — pass the number of minutes directly (e.g. 4200 for 70h) and it is converted to seconds; pass null to clear it. This lets dates, status and estimate all change in one call, so prefer this over a separate set_task_estimate when the user asks for the estimate together with other changes.",
       inputSchema: z.object({
         taskId: nonEmptyString,
         title: optionalNonEmptyString,
@@ -625,17 +639,51 @@ export function registerMcpTools(
         position: z.number().optional(),
         startDate: nullableOptionalIsoDateTimeSchema,
         dueDate: nullableOptionalIsoDateTimeSchema,
+        estimateMinutes: z
+          .number()
+          .int()
+          .nonnegative()
+          .nullable()
+          .optional()
+          .describe(
+            "Time estimate in minutes (e.g. 4200 for 70h). Pass null to clear it. Omit to leave unchanged.",
+          ),
         userId: nullableOptionalNonEmptyString,
       }),
     },
     async (args) => {
-      const { taskId, ...patch } = args;
+      const { taskId, estimateMinutes, ...patch } = args;
       return run(async () => {
         const existing = (await client.json(
           `/api/task/${encodeURIComponent(taskId)}`,
           { method: "GET" },
         )) as Record<string, unknown>;
-        const body = buildFullTaskUpdateBody(existing, patch);
+        const body = buildFullTaskUpdateBody(existing, {
+          ...patch,
+          // Anchor a newly-provided date at noon UTC so it displays on the
+          // right calendar day (see toDateOnlyNoonUtc). null clears, undefined
+          // leaves the existing value untouched.
+          ...(patch.startDate !== undefined && {
+            startDate:
+              patch.startDate === null
+                ? null
+                : toDateOnlyNoonUtc(patch.startDate as string),
+          }),
+          ...(patch.dueDate !== undefined && {
+            dueDate:
+              patch.dueDate === null
+                ? null
+                : toDateOnlyNoonUtc(patch.dueDate as string),
+          }),
+          // Minutes → seconds, only when the caller targeted the field.
+          // undefined stays absent (estimate untouched); null clears it.
+          ...(estimateMinutes !== undefined && {
+            estimatedSeconds:
+              estimateMinutes === null
+                ? null
+                : Math.round(estimateMinutes * 60),
+          }),
+        });
         return client.json(`/api/task/${encodeURIComponent(taskId)}`, {
           method: "PUT",
           body: JSON.stringify(body),
