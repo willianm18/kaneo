@@ -426,8 +426,13 @@ function AssistantChat({
         )}
       </div>
 
-      <div className="flex items-end gap-2 border-border border-t p-3">
+      <div className="flex shrink-0 items-end gap-2 border-border border-t p-3">
+        {/* O Textarea base usa `field-sizing-content`: sem um teto ele cresce
+            indefinidamente com o rascunho e come a area das mensagens. O
+            max-h limita esse crescimento (com scroll proprio a partir dai) e
+            `resize-y` deixa o usuario ajustar a altura na alca do canto. */}
         <Textarea
+          className="[&_textarea]:max-h-[min(50vh,16rem)] [&_textarea]:resize-y [&_textarea]:overflow-y-auto"
           ref={textareaRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
