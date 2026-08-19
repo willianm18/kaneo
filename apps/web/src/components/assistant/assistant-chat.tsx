@@ -160,6 +160,7 @@ function AssistantChat({
       try {
         const { text } = await transcribeAudio(
           new Blob(chunks, { type: recorder.mimeType }),
+          projectId,
         );
         // O texto entra no campo para revisao: transcricao erra nomes de
         // maquina e siglas, e um chamado errado custa mais que um clique.

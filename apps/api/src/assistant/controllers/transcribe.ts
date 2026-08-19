@@ -1,5 +1,9 @@
 import { HTTPException } from "hono/http-exception";
 import { getVoiceInputConfig } from "../config";
+import {
+  buildTranscriptionPrompt,
+  correctKnownTerms,
+} from "../transcription-vocabulary";
 
 const ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com";
 
@@ -145,12 +149,17 @@ async function transcribeWithAssemblyAi(
 async function transcribeWithGroq(
   audio: ArrayBuffer,
   apiKey: string,
+  vocabulary: string[],
 ): Promise<{ text: string }> {
   const form = new FormData();
   form.append("file", new Blob([audio]), "audio.webm");
   form.append("model", GROQ_MODEL);
   form.append("language", "pt");
   form.append("response_format", "json");
+  // Dica de contexto: o Whisper trata esse texto como a fala anterior, entao
+  // escrever ali os nomes proprios e o jargao do projeto torna a grafia certa
+  // mais provavel ("Kaneo" em vez de "canel").
+  form.append("prompt", buildTranscriptionPrompt(vocabulary));
 
   let response: Response;
   try {
@@ -182,7 +191,10 @@ async function transcribeWithGroq(
   return { text: data.text ?? "" };
 }
 
-async function transcribeAudio(audio: ArrayBuffer): Promise<{ text: string }> {
+async function transcribeAudio(
+  audio: ArrayBuffer,
+  vocabulary: string[] = [],
+): Promise<{ text: string }> {
   if (audio.byteLength > MAX_UPLOAD_SIZE_BYTES) {
     throw new HTTPException(413, {
       message: `Audio file is too large (max ${MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)}MB)`,
@@ -191,11 +203,14 @@ async function transcribeAudio(audio: ArrayBuffer): Promise<{ text: string }> {
 
   const { provider, apiKey } = getVoiceInputConfig();
 
-  if (provider === "groq") {
-    return transcribeWithGroq(audio, apiKey);
-  }
+  const result =
+    provider === "groq"
+      ? await transcribeWithGroq(audio, apiKey, vocabulary)
+      : await transcribeWithAssemblyAi(audio, apiKey);
 
-  return transcribeWithAssemblyAi(audio, apiKey);
+  // Segunda camada: o prompt torna a grafia certa mais provavel, mas nao
+  // garante. A correcao roda sobre o texto ja transcrito e e deterministica.
+  return { text: correctKnownTerms(result.text, vocabulary) };
 }
 
 export default transcribeAudio;

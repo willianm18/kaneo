@@ -18,6 +18,10 @@ import {
   signConversationState,
   verifyConversationState,
 } from "./conversation-signature";
+import {
+  collectVocabularyTerms,
+  getProjectTaskTitles,
+} from "./transcription-vocabulary";
 
 const assistant = new Hono<{
   Variables: { userId: string; session: Session | null };
@@ -210,7 +214,25 @@ const assistant = new Hono<{
       }
 
       const buffer = await audio.arrayBuffer();
-      const result = await transcribeAudio(buffer);
+
+      // Vocabulario do projeto: os titulos das tarefas trazem os nomes de
+      // equipamento e o jargao que a pessoa usa ao ditar. Falhar aqui nao pode
+      // impedir a transcricao — sem vocabulario ela so fica menos precisa.
+      const projectId =
+        typeof body.projectId === "string" ? body.projectId : null;
+      let vocabulary: string[] = [];
+      if (projectId) {
+        try {
+          const titles = await getProjectTaskTitles(projectId);
+          vocabulary = collectVocabularyTerms(titles);
+        } catch (error) {
+          console.warn(
+            `assistant transcription vocabulary failed (handled) projectId=${projectId} reason="${error instanceof Error ? error.message : String(error)}"`,
+          );
+        }
+      }
+
+      const result = await transcribeAudio(buffer, vocabulary);
 
       return c.json(result);
     },
