@@ -5,6 +5,10 @@ import {
   toOpenRouterTools,
 } from "../collect-tools";
 import {
+  type DuplicateCandidate,
+  findBlockingDuplicate,
+} from "../duplicate-guard";
+import {
   callOpenRouter,
   type OpenRouterMessage,
   type OpenRouterToolCall,
@@ -166,6 +170,8 @@ async function processToolCalls({
   onProgress,
   requestId,
   toolErrors,
+  similarTasks,
+  blockedDrafts,
 }: {
   calls: OpenRouterToolCall[];
   skipIds: Set<string>;
@@ -176,6 +182,12 @@ async function processToolCalls({
   onProgress?: (toolName: string) => void | Promise<void>;
   requestId: string;
   toolErrors: { count: number };
+  // Chamados parecidos ja calculados para este turno; usados para barrar a
+  // criacao de um card que repete um deles. Vazio quando nao ha projeto.
+  similarTasks: DuplicateCandidate[];
+  // Assinaturas de create_task ja barradas uma vez neste turno. A barreira
+  // avisa, nao impede: se o modelo insistir com os mesmos dados, cria.
+  blockedDrafts: Set<string>;
 }): Promise<AssistantResult | null> {
   for (const call of calls) {
     if (skipIds.has(call.id)) {
@@ -218,6 +230,30 @@ async function processToolCalls({
       continue;
     }
 
+    if (tool.name === "create_task" && similarTasks.length > 0) {
+      const draft = args as { title?: unknown; description?: unknown };
+      const title = typeof draft.title === "string" ? draft.title : "";
+      const description =
+        typeof draft.description === "string" ? draft.description : "";
+      const signature = `${title}\u0000${description}`.toLowerCase();
+      const duplicate = blockedDrafts.has(signature)
+        ? null
+        : findBlockingDuplicate({ title, description }, similarTasks);
+
+      if (duplicate) {
+        blockedDrafts.add(signature);
+        conversation.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content:
+            `Task not created: #${duplicate.number} "${duplicate.title}" (${duplicate.status}) is already about this. ` +
+            "Record what the user said on it with create_task_comment, and use update_task_status only if the work actually finished. " +
+            "If this really is a different subject, call create_task again with the same arguments and it will be created.",
+        });
+        continue;
+      }
+    }
+
     await onProgress?.(tool.name);
 
     let result: {
@@ -258,17 +294,24 @@ async function processToolCalls({
  * ha projeto, nao ha parecido ou a busca falha: o assistente continua
  * funcionando sem esse apoio, so perde a chance de evitar uma duplicata.
  */
-async function buildSimilarTasksBlock(
+async function fetchSimilarTasks(
   projectId: string | undefined,
   conversationText: string,
-): Promise<string | null> {
+): Promise<DuplicateCandidate[]> {
   if (!projectId) {
-    return null;
+    return [];
   }
 
-  let similar: Awaited<ReturnType<typeof findSimilarTasks>>;
   try {
-    similar = await findSimilarTasks(projectId, conversationText);
+    const similar = await findSimilarTasks(projectId, conversationText);
+    if (similar.length > 0) {
+      console.info(
+        `assistant similar-tasks projectId=${projectId} found=${similar.length} tasks=${similar
+          .map((task) => `#${task.number}(${task.score})`)
+          .join(",")}`,
+      );
+    }
+    return similar;
   } catch (error) {
     // Nao e fatal: sem a lista o assistente so perde a chance de evitar uma
     // duplicata. Mas registrar e essencial — um catch silencioso aqui ja
@@ -276,18 +319,14 @@ async function buildSimilarTasksBlock(
     console.warn(
       `assistant similar-tasks lookup failed (handled) projectId=${projectId} reason="${error instanceof Error ? error.message : String(error)}"`,
     );
-    return null;
+    return [];
   }
+}
 
+function formatSimilarTasksBlock(similar: DuplicateCandidate[]): string | null {
   if (similar.length === 0) {
     return null;
   }
-
-  console.info(
-    `assistant similar-tasks projectId=${projectId} found=${similar.length} tasks=${similar
-      .map((task) => `#${task.number}(${task.score})`)
-      .join(",")}`,
-  );
 
   const lines = similar.map(
     (task) =>
@@ -297,7 +336,7 @@ async function buildSimilarTasksBlock(
   return [
     "Possibly related existing tickets in the current project, found automatically for what the user just said:",
     ...lines,
-    "If one of them is the same subject, act on it — update its status when the user says the work advanced or finished, and record what was said with create_task_comment — instead of creating a new task about it. If none is the same subject, ignore this list and create normally. Never mention this list to the user; just act on it.",
+    "If one of them is the same subject, act on it — record what was said with create_task_comment, and use update_task_status only when the work actually finished — instead of creating a new task about it. If none is the same subject, ignore this list and create normally. Never mention this list to the user; just act on it.",
   ].join("\n");
 }
 
@@ -335,9 +374,12 @@ async function runAssistantTurn(
   // ao modelo como dado. Depender de ele lembrar de buscar antes de criar nao
   // se mostrou confiavel — ver o comentario em similar-tasks.ts. Numa retomada
   // (resumeFrom) esse bloco ja esta na conversa preservada.
-  const similarBlock = resumeFrom
-    ? null
-    : await buildSimilarTasksBlock(projectId, conversationText);
+  const similarTasks = resumeFrom
+    ? []
+    : await fetchSimilarTasks(projectId, conversationText);
+  const similarBlock = formatSimilarTasksBlock(similarTasks);
+  // Uma assinatura por rascunho barrado, valida so dentro deste turno.
+  const blockedDrafts = new Set<string>();
 
   const conversation: OpenRouterMessage[] = resumeFrom
     ? [...resumeFrom]
@@ -387,6 +429,8 @@ async function runAssistantTurn(
         onProgress,
         requestId,
         toolErrors,
+        similarTasks,
+        blockedDrafts,
       });
 
       if (pending) {
@@ -459,6 +503,8 @@ async function runAssistantTurn(
       onProgress,
       requestId,
       toolErrors,
+      similarTasks,
+      blockedDrafts,
     });
 
     if (pending) {
