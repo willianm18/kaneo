@@ -158,6 +158,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("no headings and no fixed sections");
   });
 
+  it("deixa explicito que anotacao livre tambem vira tarefa criada, nunca so uma resposta no chat", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain("every intent ends in create_task");
+    expect(prompt.toLowerCase()).toContain(
+      "answering in the chat is not recording it",
+    );
+  });
+
   it("proibe perguntar quando a intencao e anotacao livre ou registro de trabalho feito", () => {
     const prompt = buildSystemPrompt();
 
