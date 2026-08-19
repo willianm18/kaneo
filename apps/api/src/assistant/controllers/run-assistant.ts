@@ -10,6 +10,7 @@ import {
   type OpenRouterToolCall,
 } from "../openrouter";
 import { selectToolsForConversation } from "../select-tools";
+import { findSimilarTasks } from "../similar-tasks";
 
 const DESTRUCTIVE_TOOLS = new Set([
   "delete_task",
@@ -88,10 +89,9 @@ export function buildSystemPrompt(
     "Before creating a task, decide its intent from the user's own wording. Three intents exist: a request for future work; a record of work already completed (past tense — 'foi feito', 'separamos', 'ajustei' — possibly with something still pending); or a free note (a thought, an observation, a reminder, an idea, or a long spoken dictation that simply does not read as a work request — 'anota ai', 'so registrando', or any dump of context with no ask in it). The structured formats exist to serve a request, never to block a note: if the message does not read as a work request, it is a free note, and you must create it as-is without forcing it into any section format and without asking anything.",
     "Every intent ends in create_task: a request, a record of completed work and a free note are all recorded as a task in the current project. Answering in the chat is not recording it — a note that only appears in your reply is lost when the window closes. Never reply 'anotado', 'registrado' or similar without having called create_task in this same turn.",
     "Prefer acting over asking. If the message already gives enough to fill the required sections for that intent, create the task immediately — do not ask anything. Ask only when the message clearly IS a work request and something essential is missing: then ask exactly one consolidated question gathering everything missing at once (e.g. 'quem isso impacta e qual o resultado esperado?'), then create the task from the answer; never a sequence of one-question-at-a-time. Never ask when the intent is a free note or a record of completed work — create it with whatever was said. Never fill a section with placeholder text like 'a definir' — either you know it or you ask once, and if it is not a request, drop the section format entirely instead of padding it.",
-    "One message can carry several items at once — a shift report, a walkthrough, a dictation covering different machines or fronts. Treat each item separately and act on all of them in the same turn: one item may close an existing ticket, another may open a new one, another may only record a pending issue. Never collapse several items into a single task, and never handle only the first one.",
-    "Because an item usually refers to work already tracked, call list_tasks before creating anything when the message reports what happened (past tense, shift report, progress on a machine or front). If an existing task is clearly the same subject, update that task instead of creating a second one: move it with update_task_status when the item says it advanced or finished, and record what was said with create_task_comment so the detail ('ficou pingando um pouco ainda') stays in its history. Only create a task for what search found nothing about. The caution applies to CLOSING, not to creating: if you are not sure the item finishes an existing ticket, add the comment and leave its status alone — being unsure is a reason to comment, never a reason to open a parallel card about the same equipment and the same pending work.",
-    "list_tasks returns titles only, and a title like 'Painel eletrico' hides what the ticket is really about. So before creating a task for any item of a report, run search with the distinctive words of that item first (the machine, the part, the place — 'disjuntor', 'prensa 4'): search covers descriptions too, and the match is usually there and not in the title. Never skip this search because the titles from list_tasks looked unrelated — that is exactly when it finds something. Two tickets about the same equipment and the same pending work are the same subject even when the titles differ, and the follow-up of an item ('o disjuntor chegou') belongs to the ticket that raised it ('faltou o disjuntor').",
-    "Do not ask for confirmation before applying a multi-item report: apply every item and end with a short summary listing what you created, updated and closed, one line each, so the person can check it at a glance.",
+    "One message can carry several items at once — a shift report covering different machines or fronts. Handle every item in the same turn, never only the first, and never merge two items into one task.",
+    "Items usually refer to work already tracked. When the context lists possibly related existing tickets, act on the matching one instead of creating a new task about it: record what was said with create_task_comment (once per ticket), and only call update_task_status when the item says that work actually finished. An item saying something arrived, was requested, or is still pending does NOT finish the ticket — comment and leave the status alone. If no listed ticket is the same subject, create a new task normally.",
+    "Do not ask for confirmation before applying a multi-item report: apply every item and end with a short summary listing what you created, updated and closed, one line each.",
     "Structure the created task's description in markdown, translated into the user's language. Use only heading level 2 (## Heading) for section titles — the task editor renders only heading levels 1 to 3, so #### or deeper appears as literal '####' text. For a request: three headings — why it matters (the problem, impact, cost of not doing it), who it matters to (affected people, team, client, machine, or process), what is wanted (the concrete expected outcome). For a record of completed work: three headings — what was done (the substance of the card, described in full, not a preamble), what changed as a result, what is still pending (listed as pending only — never promoted into the ticket's purpose). For a free note: no headings and no fixed sections — write the content as clean prose or bullet points, preserving everything the user said (facts, numbers, names, decisions) with only the filler of speech cleaned up; do not invent, summarize away, or reorder into a format the user did not ask for. Keep the title short and specific — the structure belongs in the description, not the title.",
     "When the user does not name a project, use the current one from the context below.",
     "Stay scoped to the current project: any lookup or mutation (get_task, update_task, update_task_status, list_tasks, ...) must target the current project id from the context, unless the user explicitly names a different project. Never act on a task that turns out to belong to another project.",
@@ -253,6 +253,54 @@ async function processToolCalls({
   return null;
 }
 
+/**
+ * Monta o bloco de contexto com os chamados parecidos. Devolve null quando nao
+ * ha projeto, nao ha parecido ou a busca falha: o assistente continua
+ * funcionando sem esse apoio, so perde a chance de evitar uma duplicata.
+ */
+async function buildSimilarTasksBlock(
+  projectId: string | undefined,
+  conversationText: string,
+): Promise<string | null> {
+  if (!projectId) {
+    return null;
+  }
+
+  let similar: Awaited<ReturnType<typeof findSimilarTasks>>;
+  try {
+    similar = await findSimilarTasks(projectId, conversationText);
+  } catch (error) {
+    // Nao e fatal: sem a lista o assistente so perde a chance de evitar uma
+    // duplicata. Mas registrar e essencial — um catch silencioso aqui ja
+    // escondeu um erro de programacao que fazia o bloco nunca aparecer.
+    console.warn(
+      `assistant similar-tasks lookup failed (handled) projectId=${projectId} reason="${error instanceof Error ? error.message : String(error)}"`,
+    );
+    return null;
+  }
+
+  if (similar.length === 0) {
+    return null;
+  }
+
+  console.info(
+    `assistant similar-tasks projectId=${projectId} found=${similar.length} tasks=${similar
+      .map((task) => `#${task.number}(${task.score})`)
+      .join(",")}`,
+  );
+
+  const lines = similar.map(
+    (task) =>
+      `- #${task.number} [${task.status}] ${task.title}${task.description ? ` — ${task.description.replace(/\s+/g, " ").slice(0, 200)}` : ""}`,
+  );
+
+  return [
+    "Possibly related existing tickets in the current project, found automatically for what the user just said:",
+    ...lines,
+    "If one of them is the same subject, act on it — update its status when the user says the work advanced or finished, and record what was said with create_task_comment — instead of creating a new task about it. If none is the same subject, ignore this list and create normally. Never mention this list to the user; just act on it.",
+  ].join("\n");
+}
+
 async function runAssistantTurn(
   {
     messages,
@@ -283,10 +331,21 @@ async function runAssistantTurn(
   );
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
+  // Chamados que ja existem sobre o mesmo assunto, calculados aqui e entregues
+  // ao modelo como dado. Depender de ele lembrar de buscar antes de criar nao
+  // se mostrou confiavel — ver o comentario em similar-tasks.ts. Numa retomada
+  // (resumeFrom) esse bloco ja esta na conversa preservada.
+  const similarBlock = resumeFrom
+    ? null
+    : await buildSimilarTasksBlock(projectId, conversationText);
+
   const conversation: OpenRouterMessage[] = resumeFrom
     ? [...resumeFrom]
     : [
         { role: "system", content: buildSystemPrompt(workspaceId, projectId) },
+        ...(similarBlock
+          ? [{ role: "system" as const, content: similarBlock }]
+          : []),
         ...messages.map((message) => ({
           role: message.role,
           content: message.content,

@@ -155,7 +155,7 @@ describe("buildSystemPrompt", () => {
       "one message can carry several items",
     );
     expect(prompt.toLowerCase()).toContain(
-      "list_tasks before creating anything",
+      "handle every item in the same turn",
     );
   });
 
@@ -163,27 +163,26 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt();
 
     expect(prompt.toLowerCase()).toContain(
-      "update that task instead of creating a second one",
+      "act on the matching one instead of creating a new task",
     );
     expect(prompt.toLowerCase()).toContain("create_task_comment");
   });
 
-  it("manda usar search, e nao so os titulos do list_tasks, para achar a tarefa do mesmo assunto", () => {
+  it("so fecha o chamado quando o item diz que o trabalho terminou, nunca quando algo apenas chegou ou segue pendente", () => {
     const prompt = buildSystemPrompt();
 
-    expect(prompt.toLowerCase()).toContain("list_tasks returns titles only");
     expect(prompt.toLowerCase()).toContain(
-      "run search with the distinctive words of that item first",
+      "only call update_task_status when the item says that work actually finished",
     );
-    expect(prompt.toLowerCase()).toContain("never skip this search");
+    expect(prompt.toLowerCase()).toContain(
+      "comment and leave the status alone",
+    );
   });
 
-  it("na duvida manda comentar no chamado existente, nunca abrir um card paralelo", () => {
+  it("evita comentario repetido no mesmo chamado", () => {
     const prompt = buildSystemPrompt();
 
-    expect(prompt.toLowerCase()).toContain(
-      "being unsure is a reason to comment, never a reason to open a parallel card",
-    );
+    expect(prompt.toLowerCase()).toContain("once per ticket");
   });
 
   it("manda aplicar tudo e fechar com um resumo do que foi criado, atualizado e fechado", () => {

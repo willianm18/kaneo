@@ -77,7 +77,7 @@ const search = new Hono<{
       userEmail: v.optional(v.pipe(v.string(), v.email())),
     }),
   ),
-  workspaceAccess.fromQuery(),
+  workspaceAccess.fromQueryOrProjectQuery(),
   async (c) => {
     const { q, type, workspaceId, projectId, limit, userEmail } =
       c.req.valid("query");

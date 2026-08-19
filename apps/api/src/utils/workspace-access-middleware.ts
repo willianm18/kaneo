@@ -25,6 +25,14 @@ type WorkspaceIdSource =
       type: "lookupMany";
       resource: "task";
       idKey: string;
+    }
+  // Como "lookup", mas lendo o id da query string. Só é seguro numa rota GET
+  // cujo handler filtra pelo MESMO valor da query — do contrário valeria a
+  // ressalva do "lookup" abaixo: autorizar contra um recurso e agir em outro.
+  | {
+      type: "lookupQuery";
+      resource: "project";
+      idKey: string;
     };
 
 type WorkspaceAccessMiddlewareConfig = {
@@ -71,6 +79,11 @@ export function workspaceAccessMiddleware(
         // caller authorize against one resource (`?taskId=<mine>`) while the
         // handler acted on another (`{"taskId": "<someone else's>"}`).
         const id = c.req.param(source.idKey) || idFromBody;
+        if (id) {
+          workspaceId = await lookupWorkspaceId(source.resource, id);
+        }
+      } else if (source.type === "lookupQuery") {
+        const id = c.req.query(source.idKey) || null;
         if (id) {
           workspaceId = await lookupWorkspaceId(source.resource, id);
         }
@@ -279,6 +292,20 @@ async function lookupWorkspaceId(
 export const workspaceAccess = {
   fromQuery: (key = "workspaceId") =>
     workspaceAccessMiddleware({ sources: [{ type: "query", key }] }),
+
+  // Busca escopada: aceita `workspaceId` direto ou resolve pelo `projectId`,
+  // ambos na query. Sem isso, procurar dentro de um projeto (o que o
+  // assistente faz antes de criar uma tarefa) falha com 400.
+  fromQueryOrProjectQuery: (
+    workspaceKey = "workspaceId",
+    projectKey = "projectId",
+  ) =>
+    workspaceAccessMiddleware({
+      sources: [
+        { type: "query", key: workspaceKey },
+        { type: "lookupQuery", resource: "project", idKey: projectKey },
+      ],
+    }),
 
   fromBody: (key = "workspaceId") =>
     workspaceAccessMiddleware({ sources: [{ type: "body", key }] }),
