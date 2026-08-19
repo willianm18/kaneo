@@ -148,6 +148,53 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("the substance of the card");
   });
 
+  it("manda procurar tarefa existente antes de criar, quando a fala relata varios itens de um turno", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain(
+      "one message can carry several items",
+    );
+    expect(prompt.toLowerCase()).toContain(
+      "list_tasks before creating anything",
+    );
+  });
+
+  it("manda atualizar e comentar o chamado existente em vez de abrir um paralelo", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain(
+      "update that task instead of creating a second one",
+    );
+    expect(prompt.toLowerCase()).toContain("create_task_comment");
+  });
+
+  it("manda usar search, e nao so os titulos do list_tasks, para achar a tarefa do mesmo assunto", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain("list_tasks returns titles only");
+    expect(prompt.toLowerCase()).toContain(
+      "run search with the distinctive words of that item first",
+    );
+    expect(prompt.toLowerCase()).toContain("never skip this search");
+  });
+
+  it("na duvida manda comentar no chamado existente, nunca abrir um card paralelo", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain(
+      "being unsure is a reason to comment, never a reason to open a parallel card",
+    );
+  });
+
+  it("manda aplicar tudo e fechar com um resumo do que foi criado, atualizado e fechado", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain("do not ask for confirmation");
+    expect(prompt.toLowerCase()).toContain(
+      "end with a short summary listing what you created, updated and closed",
+    );
+  });
+
   it("reconhece anotacao livre como um terceiro tipo, criada sem formato de secoes", () => {
     const prompt = buildSystemPrompt();
 

@@ -25,6 +25,14 @@ describe("selectToolsForConversation", () => {
     }
   });
 
+  it("mantem create_task_comment no nucleo: relatar o que aconteceu e acao central, e a palavra 'comentario' nunca aparece numa fala de turno", () => {
+    const names = namesOf(
+      "fechando o turno: terminamos a troca da vedacao, o compressor 2 ficou fazendo barulho",
+    );
+
+    expect(names).toContain("create_task_comment");
+  });
+
   it("nao manda as ferramentas de tempo quando ninguem falou de tempo", () => {
     const names = namesOf("abre um chamado sobre o vazamento na bomba 3");
 
@@ -61,6 +69,32 @@ describe("selectToolsForConversation", () => {
     expect(namesOf("coloca a etiqueta de urgente nessa tarefa")).toContain(
       "create_label",
     );
+  });
+
+  it("nao depende de o nucleo estar completo: seleciona com as que existirem", () => {
+    const semUmaDoNucleo = allTools.filter(
+      (tool) => tool.name !== "create_task_comment",
+    );
+
+    const names = selectToolsForConversation(
+      semUmaDoNucleo,
+      "abre um chamado do vazamento",
+    ).map((tool) => tool.name);
+
+    expect(names).toContain("create_task");
+    expect(names).not.toContain("start_task_timer");
+  });
+
+  it("manda todas quando nenhum nome do nucleo existe mais (ferramentas renomeadas)", () => {
+    const renomeadas = allTools
+      .filter((tool) => !tool.name.startsWith("list_"))
+      .map((tool) => ({ ...tool, name: `v2_${tool.name}` }));
+
+    const names = selectToolsForConversation(renomeadas, "qualquer coisa").map(
+      (tool) => tool.name,
+    );
+
+    expect(names).toEqual(renomeadas.map((tool) => tool.name));
   });
 
   it("devolve sempre um subconjunto das ferramentas, sem repetir", () => {

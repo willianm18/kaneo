@@ -21,6 +21,10 @@ const CORE_TOOLS = new Set([
   "move_task",
   "delete_task",
   "search",
+  // Comentar e acao central do relato de turno ("terminamos X, ficou pingando
+  // um pouco"), e a palavra "comentario" nunca aparece nesse tipo de fala —
+  // depender do grupo deixaria o assistente sem como registrar o relato.
+  "create_task_comment",
 ]);
 
 /**
@@ -50,12 +54,7 @@ const TOOL_GROUPS: { match: RegExp; tools: string[] }[] = [
   },
   {
     match: /\b(comentari\w*|comentar|comment\w*|observacao|observacoes)\b/,
-    tools: [
-      "list_task_comments",
-      "create_task_comment",
-      "update_task_comment",
-      "delete_task_comment",
-    ],
+    tools: ["list_task_comments", "update_task_comment", "delete_task_comment"],
   },
   {
     match: /\b(etiqueta\w*|label\w*|tag\w*|marcador\w*)\b/,
@@ -127,8 +126,12 @@ export function selectToolsForConversation(
 
   const selected = tools.filter((tool) => allowed.has(tool.name));
 
-  // Um nome desconhecido em CORE_TOOLS/TOOL_GROUPS (ferramenta renomeada, por
-  // exemplo) sumiria em silencio. Se a selecao nao cobre nem o nucleo, e mais
-  // seguro mandar tudo do que deixar o assistente sem o basico.
-  return selected.length >= CORE_TOOLS.size ? selected : tools;
+  // Se nenhum nome do nucleo bate com a lista recebida, os nomes daqui estao
+  // velhos (ferramenta renomeada no MCP, por exemplo) e a selecao deixaria o
+  // assistente sem o basico. Nesse caso e mais seguro mandar tudo. Faltar
+  // ferramentas do nucleo na lista recebida, por outro lado, e normal: a
+  // selecao trabalha com as que existirem.
+  const conheceONucleo = tools.some((tool) => CORE_TOOLS.has(tool.name));
+
+  return conheceONucleo ? selected : tools;
 }
