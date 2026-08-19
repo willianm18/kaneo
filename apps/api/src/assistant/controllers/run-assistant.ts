@@ -9,6 +9,7 @@ import {
   type OpenRouterMessage,
   type OpenRouterToolCall,
 } from "../openrouter";
+import { selectToolsForConversation } from "../select-tools";
 
 const DESTRUCTIVE_TOOLS = new Set([
   "delete_task",
@@ -264,7 +265,17 @@ async function runAssistantTurn(
   toolErrors: { count: number },
 ): Promise<AssistantResult> {
   const tools = collectTools(baseUrl, token);
-  const toolDefinitions = toOpenRouterTools(tools);
+  // Os schemas das ferramentas viajam no prompt de toda chamada e o custo do
+  // modelo e dominado pela entrada. Mandar so as do assunto da conversa corta
+  // boa parte dos tokens de uma conversa comum. `byName` continua com TODAS
+  // as ferramentas: se o modelo pedir uma que ficou de fora (ou a selecao
+  // errar), a execucao ainda funciona.
+  const conversationText = messages
+    .map((message) => message.content)
+    .join("\n");
+  const toolDefinitions = toOpenRouterTools(
+    selectToolsForConversation(tools, conversationText),
+  );
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
   const conversation: OpenRouterMessage[] = resumeFrom
