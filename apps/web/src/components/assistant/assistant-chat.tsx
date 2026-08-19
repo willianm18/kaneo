@@ -325,6 +325,50 @@ function AssistantChat({
     clearPendingConfirmation();
   };
 
+  // Altura do campo de mensagem. O Textarea base usa `field-sizing-content`,
+  // que deixa o navegador recalcular a altura pelo conteudo — e com isso a
+  // altura arrastada na alca de resize e descartada no proximo caractere,
+  // fazendo o resize parecer quebrado. Aqui `field-sizing` e desligado (na
+  // className abaixo) e o crescimento automatico passa a ser feito na mao,
+  // limitado pelo max-h. Assim que o usuario arrasta a alca, a altura dele
+  // passa a valer e o auto-grow para de mexer.
+  const autoHeightRef = useRef<string | null>(null);
+  const isHeightManualRef = useRef(false);
+
+  // `draft` nao e lido aqui (a altura vem do proprio elemento), mas e o
+  // gatilho do reajuste a cada mudanca do rascunho — inclusive as vindas da
+  // transcricao de voz e do envio, que zeram o campo.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: gatilho intencional
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el || isHeightManualRef.current) {
+      return;
+    }
+    // "auto" primeiro para que scrollHeight volte a encolher quando o texto
+    // diminui; sem isso a caixa so cresceria.
+    el.style.height = "auto";
+    const next = `${el.scrollHeight}px`;
+    el.style.height = next;
+    autoHeightRef.current = next;
+  }, [draft]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    // Nao ha evento de "resize manual" no textarea: o navegador so escreve a
+    // altura no style inline. Toda altura diferente da ultima que o auto-grow
+    // escreveu veio, portanto, da alca.
+    const observer = new ResizeObserver(() => {
+      if (el.style.height && el.style.height !== autoHeightRef.current) {
+        isHeightManualRef.current = true;
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -427,12 +471,13 @@ function AssistantChat({
       </div>
 
       <div className="flex shrink-0 items-end gap-2 border-border border-t p-3">
-        {/* O Textarea base usa `field-sizing-content`: sem um teto ele cresce
-            indefinidamente com o rascunho e come a area das mensagens. O
-            max-h limita esse crescimento (com scroll proprio a partir dai) e
-            `resize-y` deixa o usuario ajustar a altura na alca do canto. */}
+        {/* Sem teto o campo cresce indefinidamente com o rascunho e come a
+            area das mensagens: o max-h limita isso (com scroll proprio a
+            partir dai) e `resize-y` da a alca de ajuste. `field-sizing: auto`
+            desliga o dimensionamento automatico do navegador, que ignoraria a
+            altura arrastada — o auto-grow equivalente esta no efeito acima. */}
         <Textarea
-          className="[&_textarea]:max-h-[min(50vh,16rem)] [&_textarea]:resize-y [&_textarea]:overflow-y-auto"
+          className="[&_textarea]:max-h-[min(50vh,16rem)] [&_textarea]:resize-y [&_textarea]:overflow-y-auto [&_textarea]:[field-sizing:auto]"
           ref={textareaRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

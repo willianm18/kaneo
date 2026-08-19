@@ -8503,6 +8503,9 @@
 				"dragHandle": {
 					"type": "string"
 				},
+				"resizeHandle": {
+					"type": "string"
+				},
 				"newConversation": {
 					"type": "string"
 				}
@@ -8533,6 +8536,7 @@
 				"micUnavailable",
 				"transcribeError",
 				"dragHandle",
+				"resizeHandle",
 				"newConversation"
 			]
 		}

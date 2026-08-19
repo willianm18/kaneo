@@ -1,6 +1,10 @@
 import { useParams } from "@tanstack/react-router";
 import { Maximize2, MessageCircle, Minimize2, X } from "lucide-react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  RefObject,
+} from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AssistantChat from "@/components/assistant/assistant-chat";
@@ -11,8 +15,17 @@ import { cn } from "@/lib/cn";
 type AssistantMode = "bubble" | "panel";
 type Position = { x: number; y: number };
 
+type Size = { width: number; height: number };
+
 const MODE_STORAGE_KEY = "kaneo:assistant-mode";
 const POSITION_STORAGE_KEY = "kaneo:assistant-position";
+const SIZE_STORAGE_KEY = "kaneo:assistant-size";
+const PANEL_WIDTH_STORAGE_KEY = "kaneo:assistant-panel-width";
+
+// Abaixo disso a janela deixa de caber o cabecalho, a conversa e o campo de
+// mensagem ao mesmo tempo, entao o resize para aqui.
+const MIN_WIDTH_PX = 300;
+const MIN_HEIGHT_PX = 320;
 
 // A pointer has to move at least this many pixels before a press is treated
 // as a drag rather than a click, so a plain tap still opens the chat.
@@ -65,6 +78,54 @@ function writeStoredPosition(position: Position) {
   } catch {
     // Same as the mode above: not persisting a dragged position is not
     // worth failing over.
+  }
+}
+
+function readStoredSize(): Size | null {
+  try {
+    const raw = window.localStorage.getItem(SIZE_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed.width === "number" &&
+      typeof parsed.height === "number" &&
+      Number.isFinite(parsed.width) &&
+      Number.isFinite(parsed.height)
+    ) {
+      return { width: parsed.width, height: parsed.height };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSize(size: Size) {
+  try {
+    window.localStorage.setItem(SIZE_STORAGE_KEY, JSON.stringify(size));
+  } catch {
+    // Same as the position above: not persisting is not worth failing over.
+  }
+}
+
+function readStoredPanelWidth(): number | null {
+  try {
+    const raw = window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
+    const parsed = raw === null ? Number.NaN : Number(raw);
+    return Number.isFinite(parsed) && parsed >= MIN_WIDTH_PX ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPanelWidth(width: number) {
+  try {
+    window.localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(width));
+  } catch {
+    // Same as above.
   }
 }
 
@@ -289,6 +350,105 @@ function useDraggable(
   };
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+type ResizeState = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startWidth: number;
+  startHeight: number;
+  startLeft: number;
+  startTop: number;
+};
+
+/**
+ * Turns an element into a resize handle for `targetRef`. `onResize` recebe o
+ * deslocamento do ponteiro junto com a geometria de onde o arrasto comecou,
+ * e decide qual dimensao muda — o mesmo hook serve para a alca de canto da
+ * bolha e para a borda lateral do painel docado.
+ */
+function useResizeHandle(
+  targetRef: RefObject<HTMLElement | null>,
+  onResize: (args: {
+    dx: number;
+    dy: number;
+    startWidth: number;
+    startHeight: number;
+    startLeft: number;
+    startTop: number;
+  }) => void,
+  onStart?: (rect: DOMRect) => void,
+) {
+  const stateRef = useRef<ResizeState | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handlePointerDown = useCallback(
+    (event: ReactPointerEvent) => {
+      const el = targetRef.current;
+      if (!el) {
+        return;
+      }
+      // O cabecalho da bolha e um drag handle: sem parar a propagacao, puxar
+      // a alca moveria a janela em vez de redimensiona-la.
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = el.getBoundingClientRect();
+      onStart?.(rect);
+      stateRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startWidth: rect.width,
+        startHeight: rect.height,
+        startLeft: rect.left,
+        startTop: rect.top,
+      };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      setIsResizing(true);
+    },
+    [targetRef, onStart],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: ReactPointerEvent) => {
+      const state = stateRef.current;
+      if (!state || state.pointerId !== event.pointerId) {
+        return;
+      }
+      onResize({
+        dx: event.clientX - state.startClientX,
+        dy: event.clientY - state.startClientY,
+        startWidth: state.startWidth,
+        startHeight: state.startHeight,
+        startLeft: state.startLeft,
+        startTop: state.startTop,
+      });
+    },
+    [onResize],
+  );
+
+  const endResize = useCallback((event: ReactPointerEvent) => {
+    if (stateRef.current?.pointerId === event.pointerId) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+    stateRef.current = null;
+    setIsResizing(false);
+  }, []);
+
+  return {
+    isResizing,
+    handleProps: {
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: endResize,
+      onPointerCancel: endResize,
+    },
+  };
+}
+
 function AssistantLauncher() {
   const { t } = useTranslation();
   const { data: config } = useGetConfig();
@@ -332,6 +492,69 @@ function AssistantLauncher() {
     isOpen && mode === "bubble",
     sharedPosition,
     setSharedPosition,
+  );
+
+  // Tamanho da janela. A bolha guarda largura e altura; o painel docado so
+  // guarda a largura (a altura e sempre a da tela).
+  const [bubbleSize, setBubbleSizeState] = useState<Size | null>(
+    readStoredSize,
+  );
+  const setBubbleSize = useCallback((next: Size) => {
+    setBubbleSizeState(next);
+    writeStoredSize(next);
+  }, []);
+  const [panelWidth, setPanelWidthState] = useState<number | null>(
+    readStoredPanelWidth,
+  );
+  const setPanelWidth = useCallback((next: number) => {
+    setPanelWidthState(next);
+    writeStoredPanelWidth(next);
+  }, []);
+
+  // Ate ser arrastada, a bolha fica ancorada em right/bottom: crescer a
+  // largura ali empurraria a janela para a esquerda em vez de arrastar o
+  // canto. Fixar a posicao atual no inicio do resize a ancora em left/top.
+  const anchorBeforeResize = useCallback(
+    (rect: DOMRect) => {
+      setSharedPosition({ x: rect.left, y: rect.top });
+    },
+    [setSharedPosition],
+  );
+
+  const bubbleResize = useResizeHandle(
+    panelRef,
+    useCallback(
+      ({ dx, dy, startWidth, startHeight, startLeft, startTop }) => {
+        setBubbleSize({
+          width: clampNumber(
+            startWidth + dx,
+            MIN_WIDTH_PX,
+            window.innerWidth - startLeft,
+          ),
+          height: clampNumber(
+            startHeight + dy,
+            MIN_HEIGHT_PX,
+            window.innerHeight - startTop,
+          ),
+        });
+      },
+      [setBubbleSize],
+    ),
+    anchorBeforeResize,
+  );
+
+  const panelResize = useResizeHandle(
+    panelRef,
+    useCallback(
+      ({ dx, startWidth }) => {
+        // O painel e docado a direita: arrastar a borda esquerda para a
+        // esquerda (dx negativo) alarga.
+        setPanelWidth(
+          clampNumber(startWidth - dx, MIN_WIDTH_PX, window.innerWidth),
+        );
+      },
+      [setPanelWidth],
+    ),
   );
 
   if (!config?.hasAssistant) {
@@ -389,18 +612,33 @@ function AssistantLauncher() {
         "pointer-events-auto fixed z-60 flex flex-col overflow-hidden border border-border bg-card shadow-xl",
         mode === "bubble"
           ? "right-4 bottom-4 h-[min(600px,calc(100vh-2rem))] w-[min(380px,calc(100vw-2rem))] rounded-xl"
-          : "inset-y-0 right-0 w-full rounded-none border-y-0 border-r-0 sm:w-105 sm:border-l",
+          : "inset-y-0 right-0 w-full rounded-none border-y-0 border-r-0 sm:w-[var(--assistant-panel-width,26.25rem)] sm:border-l",
       )}
-      style={
-        mode === "bubble" && panelDrag.position
+      style={{
+        ...(mode === "bubble" && panelDrag.position
           ? {
               left: panelDrag.position.x,
               top: panelDrag.position.y,
               right: "auto",
               bottom: "auto",
             }
-          : undefined
-      }
+          : null),
+        // Math.min re-encaixa um tamanho salvo numa tela maior do que a atual.
+        ...(mode === "bubble" && bubbleSize
+          ? {
+              width: Math.min(bubbleSize.width, window.innerWidth),
+              height: Math.min(bubbleSize.height, window.innerHeight),
+            }
+          : null),
+        // Como custom property (e nao `width`) para que a largura escolhida
+        // valhaso a partir de sm: no celular o painel continua ocupando a
+        // tela inteira, onde nem existe alca de resize.
+        ...(mode === "panel" && panelWidth
+          ? ({
+              "--assistant-panel-width": `${Math.min(panelWidth, window.innerWidth)}px`,
+            } as CSSProperties)
+          : null),
+      }}
     >
       <div
         className={cn(
@@ -451,6 +689,35 @@ function AssistantLauncher() {
         projectId={projectId}
         className="min-h-0 flex-1"
       />
+
+      {/* Alcas de resize da janela. Na bolha, o canto inferior direito muda
+          largura e altura; no painel docado, a borda esquerda muda so a
+          largura (a altura e sempre a da tela). Escondidas no celular, onde
+          nao ha ponteiro para o arrasto fino e o painel ocupa a tela toda. */}
+      {mode === "bubble" ? (
+        <button
+          type="button"
+          aria-label={t("assistant:resizeHandle")}
+          title={t("assistant:resizeHandle")}
+          className={cn(
+            "absolute right-0 bottom-0 hidden size-4 cursor-nwse-resize touch-none sm:block",
+            "after:absolute after:right-1 after:bottom-1 after:size-2 after:rounded-xs after:border-muted-foreground/50 after:border-r-2 after:border-b-2",
+            bubbleResize.isResizing && "after:border-muted-foreground",
+          )}
+          {...bubbleResize.handleProps}
+        />
+      ) : (
+        <button
+          type="button"
+          aria-label={t("assistant:resizeHandle")}
+          title={t("assistant:resizeHandle")}
+          className={cn(
+            "absolute inset-y-0 left-0 hidden w-1.5 cursor-ew-resize touch-none hover:bg-primary/20 sm:block",
+            panelResize.isResizing && "bg-primary/30",
+          )}
+          {...panelResize.handleProps}
+        />
+      )}
     </div>
   );
 }

@@ -2157,6 +2157,7 @@
 		"micUnavailable": "Nenhum microfone disponível",
 		"transcribeError": "Não foi possível transcrever o áudio",
 		"dragHandle": "Arraste para mover o assistente",
+		"resizeHandle": "Arraste para redimensionar o assistente",
 		"newConversation": "Nova conversa"
 	}
 }
