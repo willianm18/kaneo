@@ -147,4 +147,31 @@ describe("buildSystemPrompt", () => {
     expect(prompt.toLowerCase()).toContain("what is still pending");
     expect(prompt.toLowerCase()).toContain("the substance of the card");
   });
+
+  it("reconhece anotacao livre como um terceiro tipo, criada sem formato de secoes", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain("a free note");
+    expect(prompt.toLowerCase()).toContain(
+      "without forcing it into any section format",
+    );
+    expect(prompt.toLowerCase()).toContain("no headings and no fixed sections");
+  });
+
+  it("proibe perguntar quando a intencao e anotacao livre ou registro de trabalho feito", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain(
+      "never ask when the intent is a free note",
+    );
+  });
+
+  it("instrui a preservar o conteudo ditado na anotacao, sem inventar nem resumir", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt.toLowerCase()).toContain(
+      "preserving everything the user said",
+    );
+    expect(prompt.toLowerCase()).toContain("do not invent");
+  });
 });
