@@ -84,3 +84,36 @@ describe("findBlockingDuplicate", () => {
     ).toBeNull();
   });
 });
+
+describe("hasExplicitCreateRequest", () => {
+  it("reconhece o pedido direto de abrir chamado", async () => {
+    const { hasExplicitCreateRequest } = await import(
+      "../../../apps/api/src/assistant/duplicate-guard"
+    );
+
+    for (const fala of [
+      "Abra um chamado para verificar os itens duplicados no MetaX Acesso",
+      "abre um chamado sobre o vazamento",
+      "faça esse chamado conforme eu mencionei",
+      "cria uma tarefa nova pra isso",
+      "quero abrir um novo chamado",
+      "registra um chamado disso aí",
+    ]) {
+      expect(hasExplicitCreateRequest(fala)).toBe(true);
+    }
+  });
+
+  it("nao confunde relato de turno com pedido de abrir chamado", async () => {
+    const { hasExplicitCreateRequest } = await import(
+      "../../../apps/api/src/assistant/duplicate-guard"
+    );
+
+    for (const fala of [
+      "fechando o turno: terminamos a troca da vedação da bomba 3",
+      "o disjuntor chegou mas ninguém instalou ainda",
+      "anota aí que o fornecedor ligou",
+    ]) {
+      expect(hasExplicitCreateRequest(fala)).toBe(false);
+    }
+  });
+});

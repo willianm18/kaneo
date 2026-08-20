@@ -84,3 +84,31 @@ export function findBlockingDuplicate(
 function isClosed(status: string): boolean {
   return status === "done" || status === "archived";
 }
+
+/**
+ * O usuario pediu, com todas as letras, para abrir um chamado?
+ *
+ * Existe porque a barreira de duplicata errou feio em producao: a pessoa
+ * mandou "Abra um chamado para verificar os itens duplicados no MetaX Acesso",
+ * a barreira achou parecido um chamado de outro assunto que tambem citava
+ * MetaX Acesso, e o assistente foi comentar no card errado em vez de criar o
+ * que foi pedido — e repetiu o erro quando a pessoa insistiu.
+ *
+ * Diante de um pedido explicito, a barreira nao tem o que decidir: quem esta
+ * falando sabe que quer um chamado novo. Ela existe para o caso oposto, o
+ * relato solto em que ninguem pediu nada e o assistente e que escolhe criar.
+ */
+const EXPLICIT_CREATE_PATTERNS = [
+  /\b(abre|abra|abrir|cria|crie|criar|registra|registre|registrar|faca|faz|faze[rn]?)\b[^.?!]{0,40}\b(chamado|chamados|tarefa|tarefas|card|ticket)\b/,
+  /\b(novo|nova|outro|outra)\s+(chamado|tarefa|card|ticket)\b/,
+  /\b(open|create|file)\b[^.?!]{0,40}\b(ticket|task|issue|card)\b/,
+];
+
+export function hasExplicitCreateRequest(text: string): boolean {
+  const normalized = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  return EXPLICIT_CREATE_PATTERNS.some((pattern) => pattern.test(normalized));
+}

@@ -7,6 +7,7 @@ import {
 import {
   type DuplicateCandidate,
   findBlockingDuplicate,
+  hasExplicitCreateRequest,
 } from "../duplicate-guard";
 import {
   callOpenRouter,
@@ -323,7 +324,10 @@ async function fetchSimilarTasks(
   }
 }
 
-function formatSimilarTasksBlock(similar: DuplicateCandidate[]): string | null {
+function formatSimilarTasksBlock(
+  similar: DuplicateCandidate[],
+  explicitCreateRequest: boolean,
+): string | null {
   if (similar.length === 0) {
     return null;
   }
@@ -336,7 +340,9 @@ function formatSimilarTasksBlock(similar: DuplicateCandidate[]): string | null {
   return [
     "Possibly related existing tickets in the current project, found automatically for what the user just said:",
     ...lines,
-    "If one of them is the same subject, act on it — record what was said with create_task_comment, and use update_task_status only when the work actually finished — instead of creating a new task about it. If none is the same subject, ignore this list and create normally. Never mention this list to the user; just act on it.",
+    explicitCreateRequest
+      ? "The user explicitly asked for a new ticket, so create it — this list is context, not a reason to skip the creation. If one of these is clearly about the same problem, still create what was asked and say in your reply that #N looks related, so the person decides what to do with it. Never silently comment on an existing ticket instead of creating what was requested."
+      : "If one of them is the same subject, act on it — record what was said with create_task_comment, and use update_task_status only when the work actually finished — instead of creating a new task about it. If none is the same subject, ignore this list and create normally. Always tell the user what you did and on which ticket.",
   ].join("\n");
 }
 
@@ -377,7 +383,14 @@ async function runAssistantTurn(
   const similarTasks = resumeFrom
     ? []
     : await fetchSimilarTasks(projectId, conversationText);
-  const similarBlock = formatSimilarTasksBlock(similarTasks);
+  // Pedido explicito ("abra um chamado") desliga a barreira: quem falou sabe
+  // que quer um chamado novo, e barrar isso ja fez o assistente comentar no
+  // card errado em producao.
+  const explicitCreateRequest = hasExplicitCreateRequest(conversationText);
+  const similarBlock = formatSimilarTasksBlock(
+    similarTasks,
+    explicitCreateRequest,
+  );
   // Uma assinatura por rascunho barrado, valida so dentro deste turno.
   const blockedDrafts = new Set<string>();
 
@@ -429,7 +442,7 @@ async function runAssistantTurn(
         onProgress,
         requestId,
         toolErrors,
-        similarTasks,
+        similarTasks: explicitCreateRequest ? [] : similarTasks,
         blockedDrafts,
       });
 
@@ -503,7 +516,7 @@ async function runAssistantTurn(
       onProgress,
       requestId,
       toolErrors,
-      similarTasks,
+      similarTasks: explicitCreateRequest ? [] : similarTasks,
       blockedDrafts,
     });
 

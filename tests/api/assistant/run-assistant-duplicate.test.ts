@@ -164,3 +164,55 @@ describe("runAssistant: barreira de duplicata", () => {
     expect(mockComment).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("runAssistant: pedido explicito de abrir chamado", () => {
+  beforeEach(() => {
+    mockCall.mockReset();
+    mockFindSimilar.mockReset();
+    mockCreate.mockReset();
+    mockComment.mockReset();
+    mockFindSimilar.mockResolvedValue([painelAberto]);
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+    mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+  });
+
+  it("cria assim que a pessoa pede um chamado, mesmo havendo parecido", async () => {
+    mockCall
+      .mockResolvedValueOnce(createTaskCall("c1", "Disjuntor do painel"))
+      .mockResolvedValueOnce({ role: "assistant", content: "ok" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content: "Abra um chamado sobre o disjuntor do painel elétrico",
+        },
+      ],
+    });
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("diz ao modelo para criar, e nao para agir no parecido, quando o chamado foi pedido", async () => {
+    mockCall.mockResolvedValue({ role: "assistant", content: "ok" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content: "Abra um chamado sobre o disjuntor do painel",
+        },
+      ],
+    });
+
+    const payload = mockCall.mock.calls[0]?.[0] as {
+      messages: { content: string }[];
+    };
+    const contexto = payload.messages.map((m) => m.content).join("\n");
+
+    expect(contexto).toContain("The user explicitly asked for a new ticket");
+    expect(contexto).toContain("#7");
+  });
+});
