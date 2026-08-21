@@ -16,6 +16,7 @@ import {
 } from "../openrouter";
 import { selectToolsForConversation } from "../select-tools";
 import { findSimilarTasks } from "../similar-tasks";
+import { asksForStatusChange, findAmbiguousTargets } from "../target-guard";
 
 const DESTRUCTIVE_TOOLS = new Set([
   "delete_task",
@@ -25,6 +26,19 @@ const DESTRUCTIVE_TOOLS = new Set([
 ]);
 
 const MAX_TURNS = 8;
+
+/**
+ * Ferramentas que alteram um chamado existente. Sao as que exigem saber
+ * exatamente qual e o alvo — errar aqui mexe no trabalho de outra pessoa.
+ */
+const TASK_MUTATION_TOOLS = new Set([
+  "create_task_comment",
+  "update_task",
+  "update_task_status",
+  "update_task_assignee",
+  "update_task_due_date",
+  "move_task",
+]);
 
 /**
  * Erro lancado quando uma etapa externa (chamada ao modelo ou execucao de
@@ -172,6 +186,8 @@ async function processToolCalls({
   requestId,
   toolErrors,
   similarTasks,
+  ambiguousTargets,
+  statusChangeRequested,
   blockedDrafts,
 }: {
   calls: OpenRouterToolCall[];
@@ -186,6 +202,12 @@ async function processToolCalls({
   // Chamados parecidos ja calculados para este turno; usados para barrar a
   // criacao de um card que repete um deles. Vazio quando nao ha projeto.
   similarTasks: DuplicateCandidate[];
+  // Chamados empatados como alvo do pedido, quando a pessoa nao disse o
+  // numero. Vazio quando o alvo esta claro.
+  ambiguousTargets: DuplicateCandidate[];
+  // A fala pede para mudar o estado do chamado? Quando nao pede, mover de
+  // coluna e uma alteracao que ninguem autorizou.
+  statusChangeRequested: boolean;
   // Assinaturas de create_task ja barradas uma vez neste turno. A barreira
   // avisa, nao impede: se o modelo insistir com os mesmos dados, cria.
   blockedDrafts: Set<string>;
@@ -227,6 +249,36 @@ async function processToolCalls({
         role: "tool",
         tool_call_id: call.id,
         content: "Invalid tool arguments: not valid JSON",
+      });
+      continue;
+    }
+
+    // Alvo ambiguo: mais de um chamado disputa o pedido e ninguem disse o
+    // numero. Escolher um seria chute, e comentar no chamado errado ja
+    // aconteceu em producao.
+    if (TASK_MUTATION_TOOLS.has(tool.name) && ambiguousTargets.length > 0) {
+      const list = ambiguousTargets
+        .map((task) => `#${task.number} "${task.title}"`)
+        .join(", ");
+      conversation.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content:
+          `Not applied: more than one ticket matches what the user said (${list}). ` +
+          "Ask the user which one before acting — name them by number and title in your reply. Do not guess.",
+      });
+      continue;
+    }
+
+    // Mudanca de coluna sem pedido: a fala so queria registrar uma
+    // informacao, e mover o chamado altera o board para todo mundo.
+    if (tool.name === "update_task_status" && !statusChangeRequested) {
+      conversation.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content:
+          "Not applied: the user did not ask to change the status, only to record something. " +
+          "Add the information with create_task_comment and leave the column as it is.",
       });
       continue;
     }
@@ -387,6 +439,9 @@ async function runAssistantTurn(
   // que quer um chamado novo, e barrar isso ja fez o assistente comentar no
   // card errado em producao.
   const explicitCreateRequest = hasExplicitCreateRequest(conversationText);
+  const ambiguousTargets =
+    findAmbiguousTargets(conversationText, similarTasks) ?? [];
+  const statusChangeRequested = asksForStatusChange(conversationText);
   const similarBlock = formatSimilarTasksBlock(
     similarTasks,
     explicitCreateRequest,
@@ -443,6 +498,8 @@ async function runAssistantTurn(
         requestId,
         toolErrors,
         similarTasks: explicitCreateRequest ? [] : similarTasks,
+        ambiguousTargets,
+        statusChangeRequested,
         blockedDrafts,
       });
 
@@ -517,6 +574,8 @@ async function runAssistantTurn(
       requestId,
       toolErrors,
       similarTasks: explicitCreateRequest ? [] : similarTasks,
+      ambiguousTargets,
+      statusChangeRequested,
       blockedDrafts,
     });
 

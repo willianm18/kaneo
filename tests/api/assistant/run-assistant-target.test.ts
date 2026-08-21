@@ -1,0 +1,204 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockCall = vi.fn();
+const mockFindSimilar = vi.fn();
+const mockComment = vi.fn();
+const mockStatus = vi.fn();
+
+vi.mock("../../../apps/api/src/assistant/openrouter", () => ({
+  callOpenRouter: (...args: unknown[]) => mockCall(...args),
+}));
+
+vi.mock("../../../apps/api/src/assistant/similar-tasks", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../apps/api/src/assistant/similar-tasks")
+  >("../../../apps/api/src/assistant/similar-tasks");
+  return {
+    ...actual,
+    findSimilarTasks: (...a: unknown[]) => mockFindSimilar(...a),
+  };
+});
+
+vi.mock("../../../apps/api/src/assistant/collect-tools", () => ({
+  collectTools: () => [
+    {
+      name: "create_task_comment",
+      description: "",
+      inputSchema: {},
+      execute: mockComment,
+    },
+    {
+      name: "update_task_status",
+      description: "",
+      inputSchema: {},
+      execute: mockStatus,
+    },
+  ],
+  toOpenRouterTools: () => [],
+}));
+
+import runAssistant from "../../../apps/api/src/assistant/controllers/run-assistant";
+
+const base = {
+  token: "t",
+  baseUrl: "http://localhost:1337",
+  apiKey: "k",
+  model: "m",
+  projectId: "proj-1",
+};
+
+const metaxA = {
+  id: "a",
+  number: 28,
+  title: "Separação dos portais MetaX Acesso",
+  description: "Separar o portal MetaX do MetaX Acesso.",
+  status: "to-do",
+  score: 4,
+};
+const metaxB = {
+  id: "b",
+  number: 29,
+  title: "Verificar itens duplicados no MetaX Acesso",
+  description: "Documentos duplicados no pedido de compra.",
+  status: "to-do",
+  score: 4,
+};
+
+function toolCall(id: string, name: string, args: Record<string, unknown>) {
+  return {
+    role: "assistant",
+    content: null,
+    tool_calls: [
+      {
+        id,
+        type: "function",
+        function: { name, arguments: JSON.stringify(args) },
+      },
+    ],
+  };
+}
+
+function toolResults() {
+  const payload = mockCall.mock.calls.at(-1)?.[0] as {
+    messages: { role: string; content: string }[];
+  };
+  return payload.messages
+    .filter((message) => message.role === "tool")
+    .map((message) => message.content);
+}
+
+describe("runAssistant: alvo ambiguo", () => {
+  beforeEach(() => {
+    mockCall.mockReset();
+    mockFindSimilar.mockReset();
+    mockComment.mockReset();
+    mockStatus.mockReset();
+    mockFindSimilar.mockResolvedValue([metaxA, metaxB]);
+    mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+    mockStatus.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+  });
+
+  it("nao deixa comentar quando dois chamados disputam o pedido", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "create_task_comment", {
+          taskId: "a",
+          content: "avisamos o Aldir",
+        }),
+      )
+      .mockResolvedValueOnce({ role: "assistant", content: "qual delas?" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content: "atualize o metax informando que avisamos o Aldir",
+        },
+      ],
+    });
+
+    expect(mockComment).not.toHaveBeenCalled();
+    const [texto] = toolResults();
+    expect(texto).toContain("#28");
+    expect(texto).toContain("#29");
+    expect(texto.toLowerCase()).toContain("ask the user");
+  });
+
+  it("deixa agir quando a pessoa disse o numero do chamado", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "create_task_comment", {
+          taskId: "b",
+          content: "avisamos o Aldir",
+        }),
+      )
+      .mockResolvedValueOnce({ role: "assistant", content: "feito" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content: "atualize a tarefa 29 informando que avisamos o Aldir",
+        },
+      ],
+    });
+
+    expect(mockComment).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("runAssistant: mudanca de status sem pedido", () => {
+  beforeEach(() => {
+    mockCall.mockReset();
+    mockFindSimilar.mockReset();
+    mockComment.mockReset();
+    mockStatus.mockReset();
+    mockFindSimilar.mockResolvedValue([]);
+    mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+    mockStatus.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+  });
+
+  it("nao move o chamado de coluna quando a fala so pede para registrar algo", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "update_task_status", {
+          taskId: "b",
+          status: "in-review",
+        }),
+      )
+      .mockResolvedValueOnce({ role: "assistant", content: "ok" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content:
+            "atualize a tarefa 29 informando que avisamos o Aldir e nada chegou",
+        },
+      ],
+    });
+
+    expect(mockStatus).not.toHaveBeenCalled();
+    expect(toolResults()[0]?.toLowerCase()).toContain("did not ask");
+  });
+
+  it("move quando a pessoa pede", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "update_task_status", { taskId: "b", status: "done" }),
+      )
+      .mockResolvedValueOnce({ role: "assistant", content: "ok" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        { role: "user", content: "pode fechar a tarefa 29, já terminamos" },
+      ],
+    });
+
+    expect(mockStatus).toHaveBeenCalledTimes(1);
+  });
+});
