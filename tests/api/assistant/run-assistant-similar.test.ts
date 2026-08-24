@@ -121,6 +121,25 @@ describe("runAssistant: chamados parecidos", () => {
     );
   });
 
+  it("diz para criar tarefa quando nenhum chamado casa com o item", async () => {
+    mockFindSimilar.mockResolvedValue([]);
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content:
+            "conversei com o Bruno Dias sobre a melhoria da tela de login",
+        },
+      ],
+    });
+
+    expect(conversationSent()).toContain(
+      "No existing ticket matches what the user just said",
+    );
+  });
+
   it("nao adiciona nada ao contexto quando nao ha parecido", async () => {
     await runAssistant({
       ...base,

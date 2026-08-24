@@ -177,6 +177,15 @@ export function rankSimilarTasks(
     .slice(0, MAX_SIMILAR);
 }
 
+/**
+ * Dois candidatos por item.
+ *
+ * Com um so, o assistente pega o primeiro colocado mesmo quando o certo e o
+ * segundo — foi o que aconteceu com "o ajuste que o Gustavo pediu no portal
+ * MetaX", que tem dois chamados de MetaX no projeto. Com dois, ele acerta o
+ * alvo, ao custo de as vezes registrar o mesmo item nos dois. Comentario a
+ * mais e ruido; comentario no chamado errado e informacao perdida.
+ */
 const MAX_PER_ITEM = 2;
 const MAX_TOTAL = 6;
 
@@ -184,12 +193,16 @@ const MAX_TOTAL = 6;
  * Nota minima para um chamado ser oferecido como candidato.
  *
  * Um ponto e uma unica palavra casada na descricao — coincidencia de
- * vocabulario, nao mesmo assunto. Candidatos fracos assim nao ajudam ninguem e
- * atrapalham muito: num relato real, "conversei com o Bruno sobre a tela de
- * login" foi parar num chamado de compressor so porque ele estava na lista.
- * Tres pontos exigem titulo mais descricao, ou duas palavras no titulo.
+ * vocabulario, nao mesmo assunto, e foi assim que "conversei com o Bruno sobre
+ * a tela de login" foi parar num chamado de compressor.
+ *
+ * Dois pontos ja exigem duas palavras do assunto (ou uma no titulo, que pesa
+ * o dobro). Tres se mostrou rigoroso demais: descartava o chamado certo
+ * quando a pessoa dizia "a duplicidade dos documentos do pedido" e o card
+ * falava em "documentos duplicados no pedido de compra" — mesmo assunto, com
+ * as palavras flexionadas de outro jeito.
  */
-const MIN_SCORE = 3;
+const MIN_SCORE = 2;
 
 /**
  * Uma fala de turno cobre varios assuntos ("o compressor foi resolvido; o

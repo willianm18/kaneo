@@ -15,6 +15,7 @@ import {
   type OpenRouterToolCall,
 } from "../openrouter";
 import { selectToolsForConversation } from "../select-tools";
+import { shouldSplitIntoItems, splitReportItems } from "../shift-report";
 import {
   extractKeywords,
   findSimilarTasks,
@@ -437,7 +438,12 @@ function formatSimilarTasksBlock(
   conversationText: string,
 ): string | null {
   if (similar.length === 0) {
-    return null;
+    // Silencio aqui era uma brecha: sem candidato o modelo chamava list_tasks
+    // e escolhia um chamado qualquer para pendurar o assunto. Dizer que nao ha
+    // nada fecha essa porta.
+    return explicitCreateRequest
+      ? null
+      : "No existing ticket matches what the user just said, so this needs a new task. Do not attach it to an unrelated ticket you may find with list_tasks — create the task.";
   }
 
   // Cada linha amarra o candidato ao trecho da fala que o trouxe. Sem isso o
@@ -478,7 +484,7 @@ function formatSimilarTasksBlock(
     ...(unmatchedLine ? [unmatchedLine] : []),
     explicitCreateRequest
       ? "The user explicitly asked for a new ticket, so create it — this list is context, not a reason to skip the creation. If one of these is clearly about the same problem, still create what was asked and say in your reply that #N looks related, so the person decides what to do with it. Never silently comment on an existing ticket instead of creating what was requested."
-      : "Each line says which part of the message it was found for: only act on a ticket for THAT part, never for a different item of the message. For the matching part, record what was said with create_task_comment and use update_task_status only when the work actually finished. Any part of the message with no ticket listed for it needs a new task — do not attach it to a ticket listed for another part. Always tell the user what you did and on which ticket.",
+      : "Each line says which part of the message it was found for: only act on a ticket for THAT part, never for a different item of the message, and act on AT MOST ONE ticket per part — if two tickets are listed for the same part, pick the closest one and leave the other alone. For the matching part, record what was said with create_task_comment and use update_task_status only when the work actually finished. Any part of the message with no ticket listed for it needs a new task — do not attach it to a ticket listed for another part. Always tell the user what you did and on which ticket.",
   ].join("\n");
 }
 
@@ -689,6 +695,54 @@ async function runAssistantTurn(
  * loga nada quando nao houve erro de ferramenta, para nao gerar ruido no
  * caminho feliz.
  */
+/**
+ * Roda um relato de turno item a item.
+ *
+ * Cada assunto vira uma chamada independente, com uma decisao simples: este
+ * item, este chamado ou um novo? Mandar a fala inteira de uma vez fazia o
+ * modelo misturar os assuntos — um item ia parar no card de outro e outro
+ * ficava sem registro (verificado com dois modelos diferentes).
+ *
+ * A conversa anterior acompanha cada item como contexto, para que "a mesma
+ * bomba" ou "esse chamado" continuem fazendo sentido, mas o pedido de cada
+ * chamada e um assunto so.
+ */
+async function runReportItemByItem(
+  params: RunAssistantParams,
+  items: string[],
+  requestId: string,
+  toolErrors: { count: number },
+): Promise<AssistantResult> {
+  const history = params.messages.slice(0, -1);
+  const actions: { tool: string; summary: string }[] = [];
+  const replies: string[] = [];
+
+  for (const item of items) {
+    const result = await runAssistantTurn(
+      { ...params, messages: [...history, { role: "user", content: item }] },
+      requestId,
+      toolErrors,
+    );
+
+    actions.push(...result.actions);
+
+    // Uma confirmacao pendente (ferramenta destrutiva) interrompe o relato:
+    // ela precisa da resposta de quem esta falando antes de seguir.
+    if (result.pendingConfirmation) {
+      return { ...result, actions };
+    }
+
+    if (result.reply.trim()) {
+      replies.push(`- ${item}\n  ${result.reply.trim()}`);
+    }
+  }
+
+  return {
+    reply: replies.join("\n"),
+    actions,
+  };
+}
+
 async function runAssistant(
   params: RunAssistantParams,
 ): Promise<AssistantResult> {
@@ -699,7 +753,19 @@ async function runAssistant(
   const toolErrors = { count: 0 };
 
   try {
-    const result = await runAssistantTurn(params, requestId, toolErrors);
+    // Um relato de turno com varios assuntos e quebrado em itens; qualquer
+    // outra fala segue como um turno unico.
+    const lastMessage = params.messages.at(-1);
+    const reportItems =
+      !params.resumeFrom &&
+      lastMessage?.role === "user" &&
+      shouldSplitIntoItems(lastMessage.content)
+        ? splitReportItems(lastMessage.content)
+        : null;
+
+    const result = reportItems
+      ? await runReportItemByItem(params, reportItems, requestId, toolErrors)
+      : await runAssistantTurn(params, requestId, toolErrors);
 
     if (toolErrors.count > 0) {
       const outcome = isFailureOutcome(result.reply) ? "failed" : "succeeded";
