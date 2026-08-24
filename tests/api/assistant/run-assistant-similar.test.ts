@@ -7,9 +7,15 @@ vi.mock("../../../apps/api/src/assistant/openrouter", () => ({
   callOpenRouter: (...args: unknown[]) => mockCall(...args),
 }));
 
-vi.mock("../../../apps/api/src/assistant/similar-tasks", () => ({
-  findSimilarTasks: (...args: unknown[]) => mockFindSimilar(...args),
-}));
+vi.mock("../../../apps/api/src/assistant/similar-tasks", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../apps/api/src/assistant/similar-tasks")
+  >("../../../apps/api/src/assistant/similar-tasks");
+  return {
+    ...actual,
+    findSimilarTasks: (...args: unknown[]) => mockFindSimilar(...args),
+  };
+});
 
 vi.mock("../../../apps/api/src/assistant/collect-tools", () => ({
   collectTools: () => [
@@ -72,6 +78,35 @@ describe("runAssistant: chamados parecidos", () => {
     expect(sent).toContain("#7");
     expect(sent).toContain("Painel elétrico");
     expect(sent).toContain("to-do");
+  });
+
+  it("lista os trechos da fala que nao tem chamado, para virarem tarefa", async () => {
+    mockFindSimilar.mockResolvedValue([
+      {
+        id: "t7",
+        number: 7,
+        title: "Painel elétrico",
+        description: "Faltou o disjuntor.",
+        status: "to-do",
+        score: 4,
+        matchedItem: "o disjuntor do painel chegou",
+      },
+    ]);
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content:
+            "o disjuntor do painel chegou; conversei com o Bruno sobre a melhoria da tela de login",
+        },
+      ],
+    });
+
+    const sent = conversationSent();
+    expect(sent).toContain("no related ticket");
+    expect(sent).toContain("tela de login");
   });
 
   it("procura pelo texto do que o usuario disse, no projeto atual", async () => {

@@ -141,6 +141,15 @@ describe("selectSimilarForText", () => {
     expect(numbers).toContain(7);
   });
 
+  it("ignora candidato fraco, de uma palavra so, que so serve para o modelo errar o alvo", () => {
+    const encontrados = selectSimilarForText(
+      tasks,
+      "conversei com o Bruno sobre a melhoria da tela de login",
+    );
+
+    expect(encontrados).toEqual([]);
+  });
+
   it("nao repete o mesmo chamado quando ele casa com mais de um item", () => {
     const numbers = selectSimilarForText(
       tasks,
@@ -148,6 +157,16 @@ describe("selectSimilarForText", () => {
     ).map((task) => task.number);
 
     expect(numbers.filter((number) => number === 6)).toHaveLength(1);
+  });
+
+  it("diz a qual trecho da fala cada candidato se refere", () => {
+    const encontrados = selectSimilarForText(tasks, falaDeTurno);
+
+    const compressor = encontrados.find((task) => task.number === 6);
+    const painel = encontrados.find((task) => task.number === 7);
+
+    expect(compressor?.matchedItem).toContain("compressor 2");
+    expect(painel?.matchedItem).toContain("disjuntor");
   });
 
   it("devolve vazio quando nada casa", () => {

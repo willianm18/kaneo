@@ -15,8 +15,16 @@ import {
   type OpenRouterToolCall,
 } from "../openrouter";
 import { selectToolsForConversation } from "../select-tools";
-import { findSimilarTasks } from "../similar-tasks";
+import {
+  extractKeywords,
+  findSimilarTasks,
+  splitIntoItems,
+} from "../similar-tasks";
 import { asksForStatusChange, findAmbiguousTargets } from "../target-guard";
+import {
+  parseTaskNumberReference,
+  resolveTaskIdByNumber,
+} from "../task-reference";
 
 const DESTRUCTIVE_TOOLS = new Set([
   "delete_task",
@@ -25,12 +33,37 @@ const DESTRUCTIVE_TOOLS = new Set([
   "delete_task_relation",
 ]);
 
-const MAX_TURNS = 8;
+/**
+ * Um relato de turno costuma trazer quatro ou cinco itens, e cada item gasta
+ * dois passos: procurar o chamado e agir nele. Com oito, uma fala comum de
+ * fim de expediente esbarrava no teto e voltava "nao consegui concluir dentro
+ * do limite de passos" — depois de ja ter criado parte das tarefas.
+ */
+const MAX_TURNS = 14;
 
 /**
  * Ferramentas que alteram um chamado existente. Sao as que exigem saber
  * exatamente qual e o alvo — errar aqui mexe no trabalho de outra pessoa.
  */
+const TASK_ID_ARG_TOOLS = new Set([
+  "get_task",
+  "create_task_comment",
+  "list_task_comments",
+  "update_task",
+  "update_task_status",
+  "update_task_assignee",
+  "update_task_due_date",
+  "move_task",
+  "delete_task",
+  "set_task_estimate",
+  "set_task_completion_date",
+  "list_task_activity",
+  "list_task_time_entries",
+  "start_task_timer",
+  "stop_task_timer",
+  "pause_task_timer",
+]);
+
 const TASK_MUTATION_TOOLS = new Set([
   "create_task_comment",
   "update_task",
@@ -189,6 +222,7 @@ async function processToolCalls({
   ambiguousTargets,
   statusChangeRequested,
   blockedDrafts,
+  projectId,
 }: {
   calls: OpenRouterToolCall[];
   skipIds: Set<string>;
@@ -205,6 +239,8 @@ async function processToolCalls({
   // Chamados empatados como alvo do pedido, quando a pessoa nao disse o
   // numero. Vazio quando o alvo esta claro.
   ambiguousTargets: DuplicateCandidate[];
+  // Projeto atual, usado para traduzir o numero do chamado para o id real.
+  projectId?: string;
   // A fala pede para mudar o estado do chamado? Quando nao pede, mover de
   // coluna e uma alteracao que ninguem autorizou.
   statusChangeRequested: boolean;
@@ -251,6 +287,25 @@ async function processToolCalls({
         content: "Invalid tool arguments: not valid JSON",
       });
       continue;
+    }
+
+    // O modelo costuma passar o numero do chamado ("29") no lugar do id,
+    // porque e o que a pessoa fala e o que aparece na tela. Traduzir aqui
+    // evita a falha em cascata: sem isso a API nao acha a tarefa, devolve
+    // "Workspace ID could not be determined" e cada tentativa queima um passo
+    // do turno.
+    if (projectId && TASK_ID_ARG_TOOLS.has(tool.name)) {
+      const draft = args as Record<string, unknown>;
+      const rawTaskId = draft.taskId;
+      if (typeof rawTaskId === "string") {
+        const number = parseTaskNumberReference(rawTaskId);
+        if (number !== null) {
+          const resolved = await resolveTaskIdByNumber(projectId, number);
+          if (resolved) {
+            args = { ...draft, taskId: resolved };
+          }
+        }
+      }
     }
 
     // Alvo ambiguo: mais de um chamado disputa o pedido e ninguem disse o
@@ -379,22 +434,51 @@ async function fetchSimilarTasks(
 function formatSimilarTasksBlock(
   similar: DuplicateCandidate[],
   explicitCreateRequest: boolean,
+  conversationText: string,
 ): string | null {
   if (similar.length === 0) {
     return null;
   }
 
-  const lines = similar.map(
-    (task) =>
-      `- #${task.number} [${task.status}] ${task.title}${task.description ? ` — ${task.description.replace(/\s+/g, " ").slice(0, 200)}` : ""}`,
+  // Cada linha amarra o candidato ao trecho da fala que o trouxe. Sem isso o
+  // modelo recebe uma lista solta e cola qualquer item em qualquer chamado:
+  // num relato real, "conversei com o Bruno sobre a tela de login" virou
+  // comentario num chamado de MetaX so porque ele estava na lista.
+  const lines = similar.map((task) => {
+    const about = task.matchedItem
+      ? `for "${task.matchedItem.replace(/\s+/g, " ").slice(0, 90)}" -> `
+      : "";
+    const description = task.description
+      ? ` — ${task.description.replace(/\s+/g, " ").slice(0, 160)}`
+      : "";
+    return `- ${about}#${task.number} [${task.status}] ${task.title}${description}`;
+  });
+
+  // Os trechos que nenhum chamado cobriu. Dizer isso como dado — e nao como
+  // regra — e o que faz o assistente criar tarefa para eles: num relato real
+  // ele comentou nos dois chamados encontrados e simplesmente ignorou os
+  // outros dois assuntos da mesma fala.
+  const matched = new Set(
+    similar.map((task) => task.matchedItem).filter(Boolean),
   );
+  const unmatched = splitIntoItems(conversationText).filter(
+    (item) => !matched.has(item) && extractKeywords(item).length >= 3,
+  );
+
+  const unmatchedLine =
+    unmatched.length > 0
+      ? `Parts of the message with no related ticket (each one still needs to be recorded): ${unmatched
+          .map((item) => `"${item.replace(/\s+/g, " ").slice(0, 90)}"`)
+          .join("; ")}`
+      : null;
 
   return [
     "Possibly related existing tickets in the current project, found automatically for what the user just said:",
     ...lines,
+    ...(unmatchedLine ? [unmatchedLine] : []),
     explicitCreateRequest
       ? "The user explicitly asked for a new ticket, so create it — this list is context, not a reason to skip the creation. If one of these is clearly about the same problem, still create what was asked and say in your reply that #N looks related, so the person decides what to do with it. Never silently comment on an existing ticket instead of creating what was requested."
-      : "If one of them is the same subject, act on it — record what was said with create_task_comment, and use update_task_status only when the work actually finished — instead of creating a new task about it. If none is the same subject, ignore this list and create normally. Always tell the user what you did and on which ticket.",
+      : "Each line says which part of the message it was found for: only act on a ticket for THAT part, never for a different item of the message. For the matching part, record what was said with create_task_comment and use update_task_status only when the work actually finished. Any part of the message with no ticket listed for it needs a new task — do not attach it to a ticket listed for another part. Always tell the user what you did and on which ticket.",
   ].join("\n");
 }
 
@@ -445,6 +529,7 @@ async function runAssistantTurn(
   const similarBlock = formatSimilarTasksBlock(
     similarTasks,
     explicitCreateRequest,
+    conversationText,
   );
   // Uma assinatura por rascunho barrado, valida so dentro deste turno.
   const blockedDrafts = new Set<string>();
@@ -501,6 +586,7 @@ async function runAssistantTurn(
         ambiguousTargets,
         statusChangeRequested,
         blockedDrafts,
+        projectId,
       });
 
       if (pending) {
@@ -577,6 +663,7 @@ async function runAssistantTurn(
       ambiguousTargets,
       statusChangeRequested,
       blockedDrafts,
+      projectId,
     });
 
     if (pending) {

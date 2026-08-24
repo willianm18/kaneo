@@ -168,12 +168,14 @@ describe("runAssistant", () => {
     expect(result.pendingConfirmation?.toolCallId).toBe("c9");
   });
 
-  it("para no limite de 8 voltas", async () => {
+  it("para no limite de voltas, sem rodar para sempre", async () => {
     mockCall.mockResolvedValue(assistantToolCall("c1", "create_task"));
 
     const result = await runAssistant(base);
 
-    expect(mockCall).toHaveBeenCalledTimes(8);
+    // O teto subiu de 8 para 14 porque um relato de turno com quatro itens
+    // esbarrava nele; o que importa aqui e que exista um teto.
+    expect(mockCall).toHaveBeenCalledTimes(14);
     expect(result.reply.length).toBeGreaterThan(0);
   });
 

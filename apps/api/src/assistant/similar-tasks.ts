@@ -26,7 +26,14 @@ export type CandidateTask = {
   status: string;
 };
 
-export type SimilarTask = CandidateTask & { score: number };
+export type SimilarTask = CandidateTask & {
+  score: number;
+  // Trecho da fala que trouxe este candidato. Sem isso o modelo recebe uma
+  // lista solta e cola qualquer item da fala em qualquer chamado da lista —
+  // foi o que aconteceu num relato real, em que "conversei com o Bruno sobre
+  // a tela de login" virou comentario num chamado de MetaX.
+  matchedItem?: string;
+};
 
 const MAX_SIMILAR = 3;
 
@@ -174,13 +181,24 @@ const MAX_PER_ITEM = 2;
 const MAX_TOTAL = 6;
 
 /**
+ * Nota minima para um chamado ser oferecido como candidato.
+ *
+ * Um ponto e uma unica palavra casada na descricao — coincidencia de
+ * vocabulario, nao mesmo assunto. Candidatos fracos assim nao ajudam ninguem e
+ * atrapalham muito: num relato real, "conversei com o Bruno sobre a tela de
+ * login" foi parar num chamado de compressor so porque ele estava na lista.
+ * Tres pontos exigem titulo mais descricao, ou duas palavras no titulo.
+ */
+const MIN_SCORE = 3;
+
+/**
  * Uma fala de turno cobre varios assuntos ("o compressor foi resolvido; o
  * disjuntor chegou; apareceu vazamento na prensa 4"). Pontuar a fala inteira de
  * uma vez faz o assunto dominante ocupar as vagas e esconder justamente o
  * chamado do item que ia virar duplicata — foi o que aconteceu no teste com o
  * card "Painel eletrico". Por isso a fala e quebrada em itens antes.
  */
-function splitIntoItems(text: string): string[] {
+export function splitIntoItems(text: string): string[] {
   return text
     .split(/[;\n.!?]+|\se\s(?=[a-z])/i)
     .map((item) => item.trim())
@@ -199,15 +217,15 @@ export function selectSimilarForText(
   const byId = new Map<string, SimilarTask>();
 
   for (const item of items) {
-    const ranked = rankSimilarTasks(tasks, extractKeywords(item)).slice(
-      0,
-      MAX_PER_ITEM,
-    );
+    const ranked = rankSimilarTasks(tasks, extractKeywords(item))
+      .filter((task) => task.score >= MIN_SCORE)
+      .slice(0, MAX_PER_ITEM);
     for (const task of ranked) {
       const existing = byId.get(task.id);
-      // O mesmo chamado pode casar com mais de um item: fica com a maior nota.
+      // O mesmo chamado pode casar com mais de um item: fica com a maior nota,
+      // e com o trecho que a produziu.
       if (!existing || existing.score < task.score) {
-        byId.set(task.id, task);
+        byId.set(task.id, { ...task, matchedItem: item });
       }
     }
   }
