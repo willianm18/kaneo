@@ -4,6 +4,7 @@ import {
   collectTools,
   toOpenRouterTools,
 } from "../collect-tools";
+import { findFirstColumnSlug, findTaskByTitle } from "../daily-report-store";
 import {
   type DuplicateCandidate,
   findBlockingDuplicate,
@@ -15,7 +16,7 @@ import {
   type OpenRouterToolCall,
 } from "../openrouter";
 import { selectToolsForConversation } from "../select-tools";
-import { shouldSplitIntoItems, splitReportItems } from "../shift-report";
+import { buildDailyReportTitle, isShiftReport } from "../shift-report";
 import {
   extractKeywords,
   findSimilarTasks,
@@ -696,49 +697,121 @@ async function runAssistantTurn(
  * caminho feliz.
  */
 /**
- * Roda um relato de turno item a item.
- *
- * Cada assunto vira uma chamada independente, com uma decisao simples: este
- * item, este chamado ou um novo? Mandar a fala inteira de uma vez fazia o
- * modelo misturar os assuntos — um item ia parar no card de outro e outro
- * ficava sem registro (verificado com dois modelos diferentes).
- *
- * A conversa anterior acompanha cada item como contexto, para que "a mesma
- * bomba" ou "esse chamado" continuem fazendo sentido, mas o pedido de cada
- * chamada e um assunto so.
+ * O report e registro: dizer que gravou sem ter gravado e o pior desfecho
+ * possivel, porque a pessoa segue o dia achando que esta anotado.
  */
-async function runReportItemByItem(
+function reportFailureReply(detail: string): string {
+  return `Nao consegui registrar o report: ${detail.slice(0, 200)}`;
+}
+
+/**
+ * Registra o report do dia.
+ *
+ * Um report e historico, nao pedido de trabalho: tudo o que foi dito vai para
+ * o card daquele dia e nenhum outro chamado e tocado. Mexer em card continua
+ * sendo um pedido separado ("atualize o card 29"), com o numero na mao.
+ *
+ * O modelo entra so para organizar o texto ditado em topicos — sem
+ * ferramentas, sem decidir nada. Onde gravar e decisao do codigo, para que o
+ * report caia sempre no mesmo lugar.
+ */
+async function runDailyReport(
   params: RunAssistantParams,
-  items: string[],
+  reportText: string,
   requestId: string,
-  toolErrors: { count: number },
 ): Promise<AssistantResult> {
-  const history = params.messages.slice(0, -1);
-  const actions: { tool: string; summary: string }[] = [];
-  const replies: string[] = [];
+  const { baseUrl, token, apiKey, model, projectId } = params;
+  const tools = collectTools(baseUrl, token);
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
-  for (const item of items) {
-    const result = await runAssistantTurn(
-      { ...params, messages: [...history, { role: "user", content: item }] },
-      requestId,
-      toolErrors,
+  let body = reportText.trim();
+  try {
+    const organized = await callOpenRouter({
+      apiKey,
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Organize the dictated report into short markdown bullet points, one per subject, in the same language as the text. Preserve every fact, name, number and decision; only clean up the filler of speech. Do not invent, do not summarize away, do not add headings or commentary. Answer with the bullets only.",
+        },
+        { role: "user", content: reportText },
+      ],
+      tools: [],
+    });
+    if (organized.content?.trim()) {
+      body = organized.content.trim();
+    }
+  } catch (error) {
+    // Falhar aqui nao pode custar o registro: sem a organizacao, grava-se o
+    // texto como foi dito.
+    console.warn(
+      `assistant daily-report formatting failed (handled) reqId=${requestId} reason="${error instanceof Error ? error.message : String(error)}"`,
     );
-
-    actions.push(...result.actions);
-
-    // Uma confirmacao pendente (ferramenta destrutiva) interrompe o relato:
-    // ela precisa da resposta de quem esta falando antes de seguir.
-    if (result.pendingConfirmation) {
-      return { ...result, actions };
-    }
-
-    if (result.reply.trim()) {
-      replies.push(`- ${item}\n  ${result.reply.trim()}`);
-    }
   }
 
+  const title = buildDailyReportTitle(new Date());
+  const actions: { tool: string; summary: string }[] = [];
+
+  const existing = projectId ? await findTaskByTitle(projectId, title) : null;
+
+  if (existing) {
+    const comment = byName.get("create_task_comment");
+    if (!comment) {
+      throw new AssistantStageError("daily-report", new Error("missing tool"));
+    }
+    const result = await comment.execute({
+      taskId: existing.id,
+      content: body,
+    });
+    const text = toolResultText(result);
+
+    if (result.isError) {
+      console.warn(
+        `assistant daily-report append failed reqId=${requestId} reason="${truncateForLog(text)}"`,
+      );
+      return { reply: reportFailureReply(text), actions };
+    }
+
+    actions.push({ tool: "create_task_comment", summary: text.slice(0, 200) });
+
+    return {
+      reply: `Registrei no report de hoje (#${existing.number}).`,
+      actions,
+    };
+  }
+
+  const create = byName.get("create_task");
+  if (!create) {
+    throw new AssistantStageError("daily-report", new Error("missing tool"));
+  }
+
+  const result = await create.execute({
+    projectId,
+    title,
+    description: body,
+    priority: "low",
+    // create_task exige o status, e as colunas sao configuraveis por projeto:
+    // o card do dia nasce na primeira coluna do board, seja qual for o nome.
+    status: projectId ? await findFirstColumnSlug(projectId) : "to-do",
+  });
+  const text = toolResultText(result);
+
+  if (result.isError) {
+    console.warn(
+      `assistant daily-report create failed reqId=${requestId} reason="${truncateForLog(text)}"`,
+    );
+    return { reply: reportFailureReply(text), actions };
+  }
+
+  actions.push({ tool: "create_task", summary: text.slice(0, 200) });
+
+  const number = text.match(/"number"\s*:\s*(\d+)/)?.[1];
+
   return {
-    reply: replies.join("\n"),
+    reply: number
+      ? `Criei o report de hoje (#${number}) com o que voce falou.`
+      : "Criei o report de hoje com o que voce falou.",
     actions,
   };
 }
@@ -753,19 +826,18 @@ async function runAssistant(
   const toolErrors = { count: 0 };
 
   try {
-    // Um relato de turno com varios assuntos e quebrado em itens; qualquer
-    // outra fala segue como um turno unico.
+    // Uma fala anunciada como report vira o registro do dia; qualquer outra
+    // segue o caminho normal, com ferramentas e decisao do modelo.
     const lastMessage = params.messages.at(-1);
-    const reportItems =
+    const isReport =
       !params.resumeFrom &&
       lastMessage?.role === "user" &&
-      shouldSplitIntoItems(lastMessage.content)
-        ? splitReportItems(lastMessage.content)
-        : null;
+      isShiftReport(lastMessage.content);
 
-    const result = reportItems
-      ? await runReportItemByItem(params, reportItems, requestId, toolErrors)
-      : await runAssistantTurn(params, requestId, toolErrors);
+    const result =
+      isReport && lastMessage
+        ? await runDailyReport(params, lastMessage.content, requestId)
+        : await runAssistantTurn(params, requestId, toolErrors);
 
     if (toolErrors.count > 0) {
       const outcome = isFailureOutcome(result.reply) ? "failed" : "succeeded";

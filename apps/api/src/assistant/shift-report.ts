@@ -1,21 +1,17 @@
 import { extractKeywords, splitIntoItems } from "./similar-tasks";
 
 /**
- * Relato de turno: uma fala que cobre varios assuntos de uma vez.
+ * Report diario: o registro do que a pessoa fez no dia.
  *
- * Mandar a fala inteira numa unica chamada nao funciona. O modelo recebe
- * quatro assuntos e uma lista de chamados a disposicao, e mistura: um item vai
- * parar no card de outro, outro fica sem registro. Foi assim com gpt-4o-mini e
- * com gpt-4.1-mini — nao e falta de instrucao, e excesso de decisao numa
- * chamada so.
+ * Nao e pedido de trabalho nem atualizacao de chamado. E historico: tudo o
+ * que foi dito vai para um lugar so, o card do dia, sem tocar em nenhum outro
+ * chamado. Mexer em card e um pedido separado e explicito ("atualize o card
+ * X"), com numero na mao.
  *
- * A saida e dividir antes: cada item vira uma chamada com uma decisao simples
- * ("este item, este chamado ou um novo?").
- *
- * Dividir TODA mensagem seria pior. "Preciso trocar o rolamento da bomba 3.
- * Ela esta fazendo barulho. O operador reclamou" e um pedido so, contado em
- * tres frases, e viraria tres cards. Por isso a divisao so vale quando a fala
- * se anuncia como relato — que e como as pessoas de fato comecam.
+ * A primeira versao tentava distribuir cada assunto do relato entre os
+ * chamados existentes. Funcionava tecnicamente, mas nao era o que se queria:
+ * um report e um so registro, e espalhar o dia por varios cards fazia o
+ * historico do dia deixar de existir.
  */
 
 const REPORT_OPENERS = [
@@ -41,13 +37,14 @@ export function isShiftReport(text: string): boolean {
 }
 
 /**
- * Vale a pena dividir esta fala?
- *
- * So quando ela se anuncia como relato E traz mais de um assunto: "fechando o
- * turno, terminamos a vedacao" e uma coisa so, e segue pelo caminho normal.
+ * Titulo do card do dia. A data no titulo e o que garante um card por dia:
+ * um segundo relato no mesmo dia encontra o card que ja existe.
  */
-export function shouldSplitIntoItems(text: string): boolean {
-  return isShiftReport(text) && splitReportItems(text).length >= 2;
+export function buildDailyReportTitle(now: Date): string {
+  const day = String(now.getDate()).padStart(2, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+
+  return `Report diário — ${day}/${month}/${now.getFullYear()}`;
 }
 
 /**
