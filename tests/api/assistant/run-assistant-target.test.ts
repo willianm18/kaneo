@@ -19,6 +19,18 @@ vi.mock("../../../apps/api/src/assistant/similar-tasks", async () => {
   };
 });
 
+vi.mock("../../../apps/api/src/assistant/task-reference", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../apps/api/src/assistant/task-reference")
+  >("../../../apps/api/src/assistant/task-reference");
+  return {
+    ...actual,
+    // "35" e o chamado que a pessoa cita nos testes; ele existe no projeto.
+    resolveTaskIdByNumber: async (_projectId: string, number: number) =>
+      number === 35 ? "task-35" : null,
+  };
+});
+
 vi.mock("../../../apps/api/src/assistant/collect-tools", () => ({
   collectTools: () => [
     {
@@ -123,6 +135,33 @@ describe("runAssistant: alvo ambiguo", () => {
     expect(texto).toContain("#28");
     expect(texto).toContain("#29");
     expect(texto.toLowerCase()).toContain("ask the user");
+    // A pergunta precisa oferecer a saida de criar tarefa nova: as vezes o
+    // assunto simplesmente nao e nenhum dos chamados listados.
+    expect(texto.toLowerCase()).toContain("whether they want a new task");
+  });
+
+  it("nao interrompe com pergunta quando a pessoa pediu uma tarefa nova", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "create_task_comment", {
+          taskId: "a",
+          content: "carga Bracell",
+        }),
+      )
+      .mockResolvedValueOnce({ role: "assistant", content: "feito" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content:
+            "Criei uma tarefa em progresso, carga Bracell Bahia Industrial. Foi feito um script de carga dos colaboradores ativos para o Rainbow",
+        },
+      ],
+    });
+
+    expect(mockComment).toHaveBeenCalledTimes(1);
   });
 
   it("deixa agir quando a pessoa disse o numero do chamado", async () => {
@@ -200,5 +239,59 @@ describe("runAssistant: mudanca de status sem pedido", () => {
     });
 
     expect(mockStatus).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("runAssistant: alvo declarado pela pessoa", () => {
+  beforeEach(() => {
+    mockCall.mockReset();
+    mockFindSimilar.mockReset();
+    mockComment.mockReset();
+    mockStatus.mockReset();
+    mockFindSimilar.mockResolvedValue([]);
+    mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+    mockStatus.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+  });
+
+  it("recusa comentar em outro chamado quando a pessoa disse o numero", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "create_task_comment", {
+          taskId: "outro-id",
+          content: "replicado para o ambiente Embraer",
+        }),
+      )
+      .mockResolvedValueOnce({ role: "assistant", content: "ok" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        { role: "user", content: "é o chamado MET-35, inclui como finalizado" },
+      ],
+    });
+
+    expect(mockComment).not.toHaveBeenCalled();
+    const [texto] = toolResults();
+    expect(texto).toContain("#35");
+  });
+
+  it("deixa agir quando o chamado e o que a pessoa declarou", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "create_task_comment", {
+          taskId: "35",
+          content: "finalizado",
+        }),
+      )
+      .mockResolvedValueOnce({ role: "assistant", content: "ok" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        { role: "user", content: "no chamado 35 registra que finalizou" },
+      ],
+    });
+
+    expect(mockComment).toHaveBeenCalledTimes(1);
   });
 });

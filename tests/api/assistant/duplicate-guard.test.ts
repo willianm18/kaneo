@@ -103,6 +103,21 @@ describe("hasExplicitCreateRequest", () => {
     }
   });
 
+  it("reconhece o pedido mesmo quando o ditado troca o verbo para o passado", async () => {
+    const { hasExplicitCreateRequest } = await import(
+      "../../../apps/api/src/assistant/duplicate-guard"
+    );
+
+    // "Crie uma tarefa" costuma voltar da transcricao como "Criei uma tarefa".
+    for (const fala of [
+      "Criei uma tarefa em progresso, carga Bracell Bahia Industrial",
+      "abri um chamado sobre a carga do Rainbow",
+      "registrei uma tarefa para o script de carga",
+    ]) {
+      expect(hasExplicitCreateRequest(fala)).toBe(true);
+    }
+  });
+
   it("nao confunde relato de turno com pedido de abrir chamado", async () => {
     const { hasExplicitCreateRequest } = await import(
       "../../../apps/api/src/assistant/duplicate-guard"

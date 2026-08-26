@@ -103,3 +103,38 @@ describe("asksForStatusChange", () => {
     }
   });
 });
+
+describe("extractDeclaredTaskNumbers", () => {
+  it("pega o numero citado, inclusive no plural que o ditado produz", async () => {
+    const { extractDeclaredTaskNumbers } = await import(
+      "../../../apps/api/src/assistant/target-guard"
+    );
+
+    expect(
+      extractDeclaredTaskNumbers("Incluo o chamados 35 como finalizado"),
+    ).toEqual([35]);
+    expect(extractDeclaredTaskNumbers("comenta na tarefa 29")).toEqual([29]);
+    expect(extractDeclaredTaskNumbers("é o chamado MET-35")).toEqual([35]);
+    expect(extractDeclaredTaskNumbers("no card #7 registra isso")).toEqual([7]);
+  });
+
+  it("pega mais de um numero quando a pessoa cita varios", async () => {
+    const { extractDeclaredTaskNumbers } = await import(
+      "../../../apps/api/src/assistant/target-guard"
+    );
+
+    expect(
+      extractDeclaredTaskNumbers("fecha o chamado 12 e comenta na tarefa 19"),
+    ).toEqual([12, 19]);
+  });
+
+  it("nao confunde numero de equipamento com numero de chamado", async () => {
+    const { extractDeclaredTaskNumbers } = await import(
+      "../../../apps/api/src/assistant/target-guard"
+    );
+
+    expect(
+      extractDeclaredTaskNumbers("o compressor 2 voltou a fazer barulho"),
+    ).toEqual([]);
+  });
+});

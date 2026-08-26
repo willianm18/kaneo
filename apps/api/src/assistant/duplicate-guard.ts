@@ -99,7 +99,9 @@ function isClosed(status: string): boolean {
  * relato solto em que ninguem pediu nada e o assistente e que escolhe criar.
  */
 const EXPLICIT_CREATE_PATTERNS = [
-  /\b(abre|abra|abrir|cria|crie|criar|registra|registre|registrar|faca|faz|faze[rn]?)\b[^.?!]{0,40}\b(chamado|chamados|tarefa|tarefas|card|ticket)\b/,
+  // "criei", "abri" e "registrei" entram porque a transcricao de voz troca o
+  // imperativo pelo passado: "crie uma tarefa" volta como "criei uma tarefa".
+  /\b(abre|abra|abri|abrir|cria|crie|criei|criar|registra|registre|registrei|registrar|faca|faz|faze[rn]?)\b[^.?!]{0,40}\b(chamado|chamados|tarefa|tarefas|card|ticket)\b/,
   /\b(novo|nova|outro|outra)\s+(chamado|tarefa|card|ticket)\b/,
   /\b(open|create|file)\b[^.?!]{0,40}\b(ticket|task|issue|card)\b/,
 ];

@@ -27,7 +27,8 @@ export function mentionsTaskNumber(text: string): boolean {
 
   return (
     /#\s*\d+/.test(normalized) ||
-    /\b(tarefa|chamado|card|ticket|issue|task)\s*(numero\s*)?#?\s*\d+/.test(
+    // Plural incluido porque o ditado produz "o chamados 35".
+    /\b(tarefas?|chamados?|cards?|tickets?|issues?|tasks?)\s*(numero\s*)?#?\s*\d+/.test(
       normalized,
     ) ||
     /\b[a-z]{2,10}-\d+\b/.test(normalized)
@@ -80,4 +81,36 @@ export function asksForStatusChange(text: string): boolean {
   const normalized = normalize(text);
 
   return STATUS_CHANGE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+/**
+ * Numeros de chamado que a pessoa citou com todas as letras.
+ *
+ * Quando alguem diz "e o chamado MET-35", o alvo esta decidido — nao ha o que
+ * o assistente escolher. Em producao ele ignorou uma referencia dessas e
+ * comentou em dois outros chamados; dai esta lista existir e valer como
+ * ordem, nao como sugestao.
+ *
+ * O plural entra porque a transcricao de voz produz "o chamados 35".
+ */
+const DECLARED_NUMBER_PATTERNS = [
+  /#\s*(\d+)/g,
+  /\b(?:tarefas?|chamados?|cards?|tickets?|issues?|tasks?)\s*(?:numero\s*)?#?\s*(\d+)/g,
+  /\b[a-z]{2,10}-(\d+)\b/g,
+];
+
+export function extractDeclaredTaskNumbers(text: string): number[] {
+  const normalized = normalize(text);
+  const numbers = new Set<number>();
+
+  for (const pattern of DECLARED_NUMBER_PATTERNS) {
+    for (const match of normalized.matchAll(pattern)) {
+      const value = Number(match[1]);
+      if (Number.isFinite(value)) {
+        numbers.add(value);
+      }
+    }
+  }
+
+  return [...numbers].sort((a, b) => a - b);
 }

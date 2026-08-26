@@ -98,7 +98,12 @@ describe("runAssistant: numero do chamado no lugar do id", () => {
       .mockResolvedValueOnce(commentCall("nqvxy76c7ifcx1za1h9jpat1"))
       .mockResolvedValueOnce({ role: "assistant", content: "ok" });
 
-    await runAssistant(base);
+    // Sem numero citado na fala: aqui se mede so a traducao, sem a trava de
+    // alvo declarado entrar na conta.
+    await runAssistant({
+      ...base,
+      messages: [{ role: "user", content: "registra que o Aldir nao enviou" }],
+    });
 
     expect(mockResolve).not.toHaveBeenCalled();
     expect(mockComment).toHaveBeenCalledWith(

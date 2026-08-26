@@ -22,7 +22,11 @@ import {
   findSimilarTasks,
   splitIntoItems,
 } from "../similar-tasks";
-import { asksForStatusChange, findAmbiguousTargets } from "../target-guard";
+import {
+  asksForStatusChange,
+  extractDeclaredTaskNumbers,
+  findAmbiguousTargets,
+} from "../target-guard";
 import {
   parseTaskNumberReference,
   resolveTaskIdByNumber,
@@ -222,6 +226,8 @@ async function processToolCalls({
   toolErrors,
   similarTasks,
   ambiguousTargets,
+  declaredTaskIds,
+  declaredNumbers,
   statusChangeRequested,
   blockedDrafts,
   projectId,
@@ -241,6 +247,10 @@ async function processToolCalls({
   // Chamados empatados como alvo do pedido, quando a pessoa nao disse o
   // numero. Vazio quando o alvo esta claro.
   ambiguousTargets: DuplicateCandidate[];
+  // Ids dos chamados que a pessoa citou pelo numero, ja resolvidos no projeto
+  // atual. Quando ha algum, mutacao fora dessa lista e recusada.
+  declaredTaskIds: Set<string>;
+  declaredNumbers: number[];
   // Projeto atual, usado para traduzir o numero do chamado para o id real.
   projectId?: string;
   // A fala pede para mudar o estado do chamado? Quando nao pede, mover de
@@ -310,6 +320,25 @@ async function processToolCalls({
       }
     }
 
+    // Alvo declarado: a pessoa disse o numero do chamado. Mexer em outro e
+    // desobedecer — aconteceu em producao, com "e o chamado MET-35" virando
+    // comentario em dois chamados diferentes.
+    if (TASK_MUTATION_TOOLS.has(tool.name) && declaredTaskIds.size > 0) {
+      const target = (args as { taskId?: unknown }).taskId;
+      if (typeof target === "string" && !declaredTaskIds.has(target)) {
+        conversation.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content:
+            `Not applied: the user named the ticket to act on (${declaredNumbers
+              .map((number) => `#${number}`)
+              .join(", ")}), and this call targets a different one. ` +
+            "Use the ticket the user named. If that ticket does not exist in this project, say so instead of acting on another one.",
+        });
+        continue;
+      }
+    }
+
     // Alvo ambiguo: mais de um chamado disputa o pedido e ninguem disse o
     // numero. Escolher um seria chute, e comentar no chamado errado ja
     // aconteceu em producao.
@@ -322,7 +351,7 @@ async function processToolCalls({
         tool_call_id: call.id,
         content:
           `Not applied: more than one ticket matches what the user said (${list}). ` +
-          "Ask the user which one before acting — name them by number and title in your reply. Do not guess.",
+          "Ask the user which one before acting — name them by number and title, and ask also whether they want a new task instead, since the subject may be none of them. Do not guess.",
       });
       continue;
     }
@@ -530,9 +559,40 @@ async function runAssistantTurn(
   // que quer um chamado novo, e barrar isso ja fez o assistente comentar no
   // card errado em producao.
   const explicitCreateRequest = hasExplicitCreateRequest(conversationText);
-  const ambiguousTargets =
-    findAmbiguousTargets(conversationText, similarTasks) ?? [];
+  // Pedido explicito de tarefa nova nao tem alvo ambiguo para resolver: quem
+  // pediu quer um card novo, e interromper com "em qual chamado?" transforma
+  // um pedido claro numa pergunta sem sentido.
+  const ambiguousTargets = explicitCreateRequest
+    ? []
+    : (findAmbiguousTargets(conversationText, similarTasks) ?? []);
   const statusChangeRequested = asksForStatusChange(conversationText);
+
+  // Numeros citados viram ids do projeto atual. Numero que nao existe aqui
+  // (um chamado de outro sistema, por exemplo) simplesmente nao entra: nao ha
+  // o que exigir sobre ele.
+  const declaredNumbers = extractDeclaredTaskNumbers(conversationText);
+  const declaredTaskIds = new Set<string>();
+  if (projectId) {
+    for (const number of declaredNumbers) {
+      let id: string | null = null;
+      try {
+        id = await resolveTaskIdByNumber(projectId, number);
+      } catch (error) {
+        // Sem a resolucao a trava nao vale, mas o turno segue: recusar tudo
+        // por causa de uma consulta que falhou seria pior.
+        console.warn(
+          `assistant declared-target lookup failed (handled) projectId=${projectId} number=${number} reason="${error instanceof Error ? error.message : String(error)}"`,
+        );
+      }
+      if (id) {
+        declaredTaskIds.add(id);
+        // O modelo tambem pode passar o proprio numero como taskId; a
+        // traducao acontece antes, mas aceitar os dois evita recusar uma
+        // chamada que ja estava certa.
+        declaredTaskIds.add(String(number));
+      }
+    }
+  }
   const similarBlock = formatSimilarTasksBlock(
     similarTasks,
     explicitCreateRequest,
@@ -591,6 +651,8 @@ async function runAssistantTurn(
         toolErrors,
         similarTasks: explicitCreateRequest ? [] : similarTasks,
         ambiguousTargets,
+        declaredTaskIds,
+        declaredNumbers,
         statusChangeRequested,
         blockedDrafts,
         projectId,
@@ -668,6 +730,8 @@ async function runAssistantTurn(
       toolErrors,
       similarTasks: explicitCreateRequest ? [] : similarTasks,
       ambiguousTargets,
+      declaredTaskIds,
+      declaredNumbers,
       statusChangeRequested,
       blockedDrafts,
       projectId,
