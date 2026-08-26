@@ -367,3 +367,44 @@ describe("runAssistant: consulta nao escreve", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });
+
+describe("runAssistant: o que foi barrado aparece na resposta", () => {
+  beforeEach(() => {
+    mockCall.mockReset();
+    mockFindSimilar.mockReset();
+    mockComment.mockReset();
+    mockStatus.mockReset();
+    mockCreate.mockReset();
+    mockFindSimilar.mockResolvedValue([]);
+    mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+  });
+
+  it("avisa quando uma acao foi barrada, para o assistente nao dizer que fez", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "create_task_comment", {
+          taskId: "outro-id",
+          content: "aplicado no ambiente Embraer",
+        }),
+      )
+      .mockResolvedValueOnce({
+        role: "assistant",
+        content: "Comentario adicionado no chamado 19.",
+      });
+
+    const result = await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content:
+            "Transfira o chamado 35 para finalizado e inclua o comentario que foi aplicado no ambiente da Embraer",
+        },
+      ],
+    });
+
+    expect(mockComment).not.toHaveBeenCalled();
+    expect(result.reply).toContain("#35");
+    expect(result.reply.toLowerCase()).toContain("nao foi aplicad");
+  });
+});

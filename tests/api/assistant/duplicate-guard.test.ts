@@ -132,3 +132,34 @@ describe("hasExplicitCreateRequest", () => {
     }
   });
 });
+
+describe("isFreeNoteRequest", () => {
+  it("reconhece o pedido de anotar, que gera registro novo", async () => {
+    const { isFreeNoteRequest } = await import(
+      "../../../apps/api/src/assistant/duplicate-guard"
+    );
+
+    for (const fala of [
+      "anota aí que a Alessandra pediu mais dois projetos",
+      "anote que o fornecedor ligou",
+      "só registrando que o prazo mudou",
+      "deixa registrado que o Aldir nao respondeu",
+    ]) {
+      expect(isFreeNoteRequest(fala)).toBe(true);
+    }
+  });
+
+  it("nao trata relato nem pergunta como pedido de anotacao", async () => {
+    const { isFreeNoteRequest } = await import(
+      "../../../apps/api/src/assistant/duplicate-guard"
+    );
+
+    for (const fala of [
+      "terminamos a troca da vedação",
+      "quais chamados estão em aberto?",
+      "report de hoje: falei com o Bruno",
+    ]) {
+      expect(isFreeNoteRequest(fala)).toBe(false);
+    }
+  });
+});

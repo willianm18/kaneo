@@ -9,6 +9,7 @@ import {
   type DuplicateCandidate,
   findBlockingDuplicate,
   hasExplicitCreateRequest,
+  isFreeNoteRequest,
 } from "../duplicate-guard";
 import {
   callOpenRouter,
@@ -197,6 +198,27 @@ function truncateForLog(
  * em vez de uma resposta normal do modelo. Usado so para o log-resumo de
  * fim de requisicao (nao muda nada do fluxo em si).
  */
+/**
+ * Anexa a resposta o que foi recusado no turno.
+ *
+ * O modelo relata as acoes que TENTOU, nao as que aconteceram: numa recusa
+ * ele respondeu "adicionei o comentario no chamado 19" sem que comentario
+ * nenhum tivesse sido criado. Como a recusa e decisao do codigo, o aviso
+ * tambem tem de vir do codigo — quem esta falando precisa saber o que ficou
+ * de fora.
+ */
+function withBlockedNotices(reply: string, notices: string[]): string {
+  if (notices.length === 0) {
+    return reply;
+  }
+
+  const unicos = [...new Set(notices)];
+
+  const lista = unicos.map((notice) => `- ${notice}`).join("\n");
+
+  return `${reply.trim()}\n\n---\nAtencao, isto nao foi aplicado:\n${lista}`.trim();
+}
+
 function isFailureOutcome(reply: string): boolean {
   return (
     reply.startsWith("O modelo nao respondeu") ||
@@ -231,6 +253,8 @@ async function processToolCalls({
   readOnlyQuestion,
   declaredTaskIds,
   declaredNumbers,
+  blockedNotices,
+  executedCalls,
   statusChangeRequested,
   blockedDrafts,
   projectId,
@@ -267,6 +291,11 @@ async function processToolCalls({
   // Assinaturas de create_task ja barradas uma vez neste turno. A barreira
   // avisa, nao impede: se o modelo insistir com os mesmos dados, cria.
   blockedDrafts: Set<string>;
+  // Acoes recusadas neste turno. O modelo costuma relatar como se tivessem
+  // acontecido, entao o aviso e anexado a resposta pelo proprio codigo.
+  blockedNotices: string[];
+  // Assinaturas ja executadas neste turno, para nao repetir a mesma acao.
+  executedCalls: Set<string>;
 }): Promise<AssistantResult | null> {
   for (const call of calls) {
     if (skipIds.has(call.id)) {
@@ -335,12 +364,15 @@ async function processToolCalls({
       (TASK_MUTATION_TOOLS.has(tool.name) || tool.name === "create_task") &&
       readOnlyQuestion
     ) {
+      blockedNotices.push(
+        `${tool.name} nao foi aplicado: a mensagem era uma pergunta, nao um pedido de registro.`,
+      );
       conversation.push({
         role: "tool",
         tool_call_id: call.id,
         content:
           "Not applied: the user asked a question, they did not ask to record anything. " +
-          "Answer it by reading (list_tasks, get_task, search) and reply with the answer.",
+          "Answer it by reading (list_tasks, get_task, search) and reply with the answer. Never tell the user you recorded something that was not applied.",
       });
       continue;
     }
@@ -353,12 +385,15 @@ async function processToolCalls({
       explicitCreateRequest &&
       declaredTaskIds.size === 0
     ) {
+      blockedNotices.push(
+        `${tool.name} nao foi aplicado: o pedido era de tarefa nova, nao de alteracao em chamado existente.`,
+      );
       conversation.push({
         role: "tool",
         tool_call_id: call.id,
         content:
           "Not applied: the user asked for a NEW task, not for changes to existing tickets. " +
-          "Create the task. If another ticket looks related, mention it in your reply instead of writing on it.",
+          "Create the task. If another ticket looks related, mention it in your reply instead of writing on it. Never tell the user you wrote on a ticket when it was not applied.",
       });
       continue;
     }
@@ -369,14 +404,16 @@ async function processToolCalls({
     if (TASK_MUTATION_TOOLS.has(tool.name) && declaredTaskIds.size > 0) {
       const target = (args as { taskId?: unknown }).taskId;
       if (typeof target === "string" && !declaredTaskIds.has(target)) {
+        const alvos = declaredNumbers.map((number) => `#${number}`).join(", ");
+        blockedNotices.push(
+          `${tool.name} nao foi aplicado: a acao apontava para outro chamado, e voce citou ${alvos}.`,
+        );
         conversation.push({
           role: "tool",
           tool_call_id: call.id,
           content:
-            `Not applied: the user named the ticket to act on (${declaredNumbers
-              .map((number) => `#${number}`)
-              .join(", ")}), and this call targets a different one. ` +
-            "Use the ticket the user named. If that ticket does not exist in this project, say so instead of acting on another one.",
+            `Not applied: the user named the ticket to act on (${alvos}), and this call targets a different one. ` +
+            "Retry the same call using the ticket the user named. Never tell the user you did something that was not applied.",
         });
         continue;
       }
@@ -408,12 +445,15 @@ async function processToolCalls({
     // Mudanca de coluna sem pedido: a fala so queria registrar uma
     // informacao, e mover o chamado altera o board para todo mundo.
     if (tool.name === "update_task_status" && !statusChangeRequested) {
+      blockedNotices.push(
+        "update_task_status nao foi aplicado: voce nao pediu para mudar a coluna, so para registrar.",
+      );
       conversation.push({
         role: "tool",
         tool_call_id: call.id,
         content:
           "Not applied: the user did not ask to change the status, only to record something. " +
-          "Add the information with create_task_comment and leave the column as it is.",
+          "Add the information with create_task_comment and leave the column as it is. Never tell the user the status changed when it did not.",
       });
       continue;
     }
@@ -441,6 +481,21 @@ async function processToolCalls({
         continue;
       }
     }
+
+    // Repetir a mesma acao com os mesmos argumentos nao muda nada e queima o
+    // turno: em producao o modelo chamou update_task_status seis vezes
+    // seguidas, identicas, ate estourar o limite de passos.
+    const executionKey = `${tool.name}:${JSON.stringify(args)}`;
+    if (executedCalls.has(executionKey)) {
+      conversation.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content:
+          "Already applied in this turn with exactly these arguments — the result was the same as before. Move on to the next step or answer the user.",
+      });
+      continue;
+    }
+    executedCalls.add(executionKey);
 
     await onProgress?.(tool.name);
 
@@ -607,7 +662,13 @@ async function runAssistantTurn(
   // Pedido explicito ("abra um chamado") desliga a barreira: quem falou sabe
   // que quer um chamado novo, e barrar isso ja fez o assistente comentar no
   // card errado em producao.
-  const explicitCreateRequest = hasExplicitCreateRequest(conversationText);
+  // Pedido de anotacao ("anota ai que...") tambem e pedido de registro novo,
+  // desde que a pessoa nao tenha citado o numero de um chamado — se citou, o
+  // alvo e aquele e nao ha nada a criar.
+  const explicitCreateRequest =
+    hasExplicitCreateRequest(conversationText) ||
+    (isFreeNoteRequest(conversationText) &&
+      extractDeclaredTaskNumbers(conversationText).length === 0);
   // Pedido explicito de tarefa nova nao tem alvo ambiguo para resolver: quem
   // pediu quer um card novo, e interromper com "em qual chamado?" transforma
   // um pedido claro numa pergunta sem sentido.
@@ -615,6 +676,8 @@ async function runAssistantTurn(
     ? []
     : (findAmbiguousTargets(conversationText, similarTasks) ?? []);
   const statusChangeRequested = asksForStatusChange(conversationText);
+  const blockedNotices: string[] = [];
+  const executedCalls = new Set<string>();
   // Vale apenas a ultima fala: o historico costuma ter pedidos anteriores que
   // nao dizem nada sobre o que se quer agora.
   const readOnlyQuestion = isReadOnlyQuestion(
@@ -709,6 +772,8 @@ async function runAssistantTurn(
         readOnlyQuestion,
         declaredTaskIds,
         declaredNumbers,
+        blockedNotices,
+        executedCalls,
         statusChangeRequested,
         blockedDrafts,
         projectId,
@@ -769,7 +834,10 @@ async function runAssistantTurn(
     }
 
     if (!message.tool_calls?.length) {
-      return { reply: message.content ?? "", actions };
+      return {
+        reply: withBlockedNotices(message.content ?? "", blockedNotices),
+        actions,
+      };
     }
 
     conversation.push(message);
@@ -790,6 +858,8 @@ async function runAssistantTurn(
       readOnlyQuestion,
       declaredTaskIds,
       declaredNumbers,
+      blockedNotices,
+      executedCalls,
       statusChangeRequested,
       blockedDrafts,
       projectId,
@@ -801,8 +871,10 @@ async function runAssistantTurn(
   }
 
   return {
-    reply:
+    reply: withBlockedNotices(
       "Nao consegui concluir dentro do limite de passos. Tente dividir o pedido em partes menores.",
+      blockedNotices,
+    ),
     actions,
   };
 }

@@ -114,3 +114,29 @@ export function hasExplicitCreateRequest(text: string): boolean {
 
   return EXPLICIT_CREATE_PATTERNS.some((pattern) => pattern.test(normalized));
 }
+
+/**
+ * Pedido de anotacao livre: "anota ai que...", "so registrando que...".
+ *
+ * E pedido de registro NOVO, nao de escrever num chamado existente — em
+ * producao "anota ai que a Alessandra pediu mais dois projetos" virou
+ * comentario em dois chamados de Bracell. Quando a pessoa cita o numero de um
+ * chamado, isso deixa de valer: ai o alvo foi dado por ela.
+ */
+const FREE_NOTE_PATTERNS = [
+  /\banota\b/,
+  /\banote\b/,
+  /\banotar\b/,
+  /\bdeixa\s+(registrado|anotado)\b/,
+  /\bso\s+registrando\b/,
+  /\bsomente\s+registrando\b/,
+];
+
+export function isFreeNoteRequest(text: string): boolean {
+  const normalized = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  return FREE_NOTE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
