@@ -194,6 +194,40 @@ describe("runAssistant: pedido explicito de abrir chamado", () => {
     expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 
+  it("nao deixa comentar em outros chamados quando o pedido era abrir um novo", async () => {
+    mockCall
+      .mockResolvedValueOnce({
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "c1",
+            type: "function",
+            function: {
+              name: "create_task_comment",
+              arguments: JSON.stringify({
+                taskId: "t7",
+                content: "novo chamado aberto sobre o disjuntor",
+              }),
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ role: "assistant", content: "ok" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content: "Abra um chamado sobre o disjuntor do painel",
+        },
+      ],
+    });
+
+    expect(mockComment).not.toHaveBeenCalled();
+  });
+
   it("diz ao modelo para criar, e nao para agir no parecido, quando o chamado foi pedido", async () => {
     mockCall.mockResolvedValue({ role: "assistant", content: "ok" });
 

@@ -4,6 +4,7 @@ const mockCall = vi.fn();
 const mockFindSimilar = vi.fn();
 const mockComment = vi.fn();
 const mockStatus = vi.fn();
+const mockCreate = vi.fn();
 
 vi.mock("../../../apps/api/src/assistant/openrouter", () => ({
   callOpenRouter: (...args: unknown[]) => mockCall(...args),
@@ -44,6 +45,12 @@ vi.mock("../../../apps/api/src/assistant/collect-tools", () => ({
       description: "",
       inputSchema: {},
       execute: mockStatus,
+    },
+    {
+      name: "create_task",
+      description: "",
+      inputSchema: {},
+      execute: mockCreate,
     },
   ],
   toOpenRouterTools: () => [],
@@ -105,6 +112,7 @@ describe("runAssistant: alvo ambiguo", () => {
     mockFindSimilar.mockReset();
     mockComment.mockReset();
     mockStatus.mockReset();
+    mockCreate.mockReset();
     mockFindSimilar.mockResolvedValue([metaxA, metaxB]);
     mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
     mockStatus.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
@@ -140,12 +148,13 @@ describe("runAssistant: alvo ambiguo", () => {
     expect(texto.toLowerCase()).toContain("whether they want a new task");
   });
 
-  it("nao interrompe com pergunta quando a pessoa pediu uma tarefa nova", async () => {
+  it("cria sem interromper com pergunta quando a pessoa pediu uma tarefa nova", async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
     mockCall
       .mockResolvedValueOnce(
-        toolCall("c1", "create_task_comment", {
-          taskId: "a",
-          content: "carga Bracell",
+        toolCall("c1", "create_task", {
+          title: "Carga Bracell Bahia Industrial",
+          description: "script de carga",
         }),
       )
       .mockResolvedValueOnce({ role: "assistant", content: "feito" });
@@ -161,7 +170,31 @@ describe("runAssistant: alvo ambiguo", () => {
       ],
     });
 
-    expect(mockComment).toHaveBeenCalledTimes(1);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("nao cria tarefa por conta propria enquanto pergunta qual e o alvo", async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "create_task", {
+          title: "Acompanhar envio de informações do MetaX",
+          description: "avisamos o Aldir",
+        }),
+      )
+      .mockResolvedValueOnce({ role: "assistant", content: "qual delas?" });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content: "atualize o metax informando que avisamos o Aldir",
+        },
+      ],
+    });
+
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it("deixa agir quando a pessoa disse o numero do chamado", async () => {
@@ -194,6 +227,7 @@ describe("runAssistant: mudanca de status sem pedido", () => {
     mockFindSimilar.mockReset();
     mockComment.mockReset();
     mockStatus.mockReset();
+    mockCreate.mockReset();
     mockFindSimilar.mockResolvedValue([]);
     mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
     mockStatus.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
@@ -248,6 +282,7 @@ describe("runAssistant: alvo declarado pela pessoa", () => {
     mockFindSimilar.mockReset();
     mockComment.mockReset();
     mockStatus.mockReset();
+    mockCreate.mockReset();
     mockFindSimilar.mockResolvedValue([]);
     mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
     mockStatus.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
@@ -293,5 +328,42 @@ describe("runAssistant: alvo declarado pela pessoa", () => {
     });
 
     expect(mockComment).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("runAssistant: consulta nao escreve", () => {
+  beforeEach(() => {
+    mockCall.mockReset();
+    mockFindSimilar.mockReset();
+    mockComment.mockReset();
+    mockStatus.mockReset();
+    mockCreate.mockReset();
+    mockFindSimilar.mockResolvedValue([]);
+    mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
+  });
+
+  it("nao registra nada quando a fala e uma pergunta", async () => {
+    mockCall
+      .mockResolvedValueOnce(
+        toolCall("c1", "create_task_comment", {
+          taskId: "a",
+          content: "pedido de lista",
+        }),
+      )
+      .mockResolvedValueOnce({
+        role: "assistant",
+        content: "seguem os chamados",
+      });
+
+    await runAssistant({
+      ...base,
+      messages: [
+        { role: "user", content: "quais chamados estão em aberto no projeto?" },
+      ],
+    });
+
+    expect(mockComment).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });

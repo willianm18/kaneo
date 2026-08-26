@@ -114,3 +114,33 @@ export function extractDeclaredTaskNumbers(text: string): number[] {
 
   return [...numbers].sort((a, b) => a - b);
 }
+
+/**
+ * Verbos que pedem uma acao sobre o board. Quando um deles aparece, a fala e
+ * pedido, ainda que venha embrulhada em pergunta ("pode fechar o 55?").
+ */
+const ACTION_VERBS =
+  /\b(abre|abra|abri|abrir|cria|crie|criei|criar|registra|registre|registrei|registrar|anota|anote|anotei|anotar|comenta|comente|comentei|comentar|atualiza|atualize|atualizei|atualizar|fecha|feche|fechei|fechar|move|mova|mover|coloca|coloque|marca|marque|inclui|incluir|incluo|apaga|apague|apagar|deleta|delete|deletar|report|relato|daily)\b/;
+
+/**
+ * Pronomes e verbos que abrem uma consulta.
+ */
+const QUESTION_OPENERS =
+  /\b(quais|quantos|quantas|qual|quando|onde|quem|como|o que|me mostra|me diz|me fala|mostra|lista|listar|ver|verificar)\b/;
+
+/**
+ * A fala e uma consulta — algo a responder, nao a registrar?
+ *
+ * Existe porque "quais chamados estao em aberto no projeto?" virou um
+ * comentario dentro de um chamado. Pergunta se responde lendo; escrever no
+ * board a partir dela e sempre erro.
+ */
+export function isReadOnlyQuestion(text: string): boolean {
+  const normalized = normalize(text);
+
+  if (ACTION_VERBS.test(normalized)) {
+    return false;
+  }
+
+  return QUESTION_OPENERS.test(normalized) || normalized.trim().endsWith("?");
+}

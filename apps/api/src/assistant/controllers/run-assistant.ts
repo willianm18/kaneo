@@ -26,6 +26,7 @@ import {
   asksForStatusChange,
   extractDeclaredTaskNumbers,
   findAmbiguousTargets,
+  isReadOnlyQuestion,
 } from "../target-guard";
 import {
   parseTaskNumberReference,
@@ -226,6 +227,8 @@ async function processToolCalls({
   toolErrors,
   similarTasks,
   ambiguousTargets,
+  explicitCreateRequest,
+  readOnlyQuestion,
   declaredTaskIds,
   declaredNumbers,
   statusChangeRequested,
@@ -247,6 +250,11 @@ async function processToolCalls({
   // Chamados empatados como alvo do pedido, quando a pessoa nao disse o
   // numero. Vazio quando o alvo esta claro.
   ambiguousTargets: DuplicateCandidate[];
+  // A fala pediu uma tarefa nova? Nesse caso, chamados existentes ficam fora
+  // do alcance a menos que a pessoa tenha citado o numero de algum.
+  explicitCreateRequest: boolean;
+  // A fala e pergunta? Consulta nao escreve no board.
+  readOnlyQuestion: boolean;
   // Ids dos chamados que a pessoa citou pelo numero, ja resolvidos no projeto
   // atual. Quando ha algum, mutacao fora dessa lista e recusada.
   declaredTaskIds: Set<string>;
@@ -320,6 +328,41 @@ async function processToolCalls({
       }
     }
 
+    // Consulta nao escreve. Uma pergunta se responde lendo, e escrever a
+    // partir dela e sempre erro — "quais chamados estao em aberto?" chegou a
+    // virar comentario dentro de um chamado.
+    if (
+      (TASK_MUTATION_TOOLS.has(tool.name) || tool.name === "create_task") &&
+      readOnlyQuestion
+    ) {
+      conversation.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content:
+          "Not applied: the user asked a question, they did not ask to record anything. " +
+          "Answer it by reading (list_tasks, get_task, search) and reply with the answer.",
+      });
+      continue;
+    }
+
+    // Pedido de tarefa nova nao autoriza mexer nos chamados que ja existem.
+    // Sem esta trava o assistente criava o card certo e ainda saia comentando
+    // "novo chamado aberto sobre..." nos parecidos, poluindo o board.
+    if (
+      TASK_MUTATION_TOOLS.has(tool.name) &&
+      explicitCreateRequest &&
+      declaredTaskIds.size === 0
+    ) {
+      conversation.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content:
+          "Not applied: the user asked for a NEW task, not for changes to existing tickets. " +
+          "Create the task. If another ticket looks related, mention it in your reply instead of writing on it.",
+      });
+      continue;
+    }
+
     // Alvo declarado: a pessoa disse o numero do chamado. Mexer em outro e
     // desobedecer — aconteceu em producao, com "e o chamado MET-35" virando
     // comentario em dois chamados diferentes.
@@ -342,7 +385,13 @@ async function processToolCalls({
     // Alvo ambiguo: mais de um chamado disputa o pedido e ninguem disse o
     // numero. Escolher um seria chute, e comentar no chamado errado ja
     // aconteceu em producao.
-    if (TASK_MUTATION_TOOLS.has(tool.name) && ambiguousTargets.length > 0) {
+    // Enquanto ha duvida sobre o alvo, nada e aplicado — nem criar. Criar por
+    // conta propria durante a pergunta enche o board de card orfao enquanto a
+    // pessoa ainda nem respondeu.
+    if (
+      (TASK_MUTATION_TOOLS.has(tool.name) || tool.name === "create_task") &&
+      ambiguousTargets.length > 0
+    ) {
       const list = ambiguousTargets
         .map((task) => `#${task.number} "${task.title}"`)
         .join(", ");
@@ -566,6 +615,11 @@ async function runAssistantTurn(
     ? []
     : (findAmbiguousTargets(conversationText, similarTasks) ?? []);
   const statusChangeRequested = asksForStatusChange(conversationText);
+  // Vale apenas a ultima fala: o historico costuma ter pedidos anteriores que
+  // nao dizem nada sobre o que se quer agora.
+  const readOnlyQuestion = isReadOnlyQuestion(
+    messages.at(-1)?.content ?? conversationText,
+  );
 
   // Numeros citados viram ids do projeto atual. Numero que nao existe aqui
   // (um chamado de outro sistema, por exemplo) simplesmente nao entra: nao ha
@@ -651,6 +705,8 @@ async function runAssistantTurn(
         toolErrors,
         similarTasks: explicitCreateRequest ? [] : similarTasks,
         ambiguousTargets,
+        explicitCreateRequest,
+        readOnlyQuestion,
         declaredTaskIds,
         declaredNumbers,
         statusChangeRequested,
@@ -730,6 +786,8 @@ async function runAssistantTurn(
       toolErrors,
       similarTasks: explicitCreateRequest ? [] : similarTasks,
       ambiguousTargets,
+      explicitCreateRequest,
+      readOnlyQuestion,
       declaredTaskIds,
       declaredNumbers,
       statusChangeRequested,

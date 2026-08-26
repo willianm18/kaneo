@@ -138,3 +138,39 @@ describe("extractDeclaredTaskNumbers", () => {
     ).toEqual([]);
   });
 });
+
+describe("isReadOnlyQuestion", () => {
+  it("reconhece a consulta, que nunca deve escrever nada", async () => {
+    const { isReadOnlyQuestion } = await import(
+      "../../../apps/api/src/assistant/target-guard"
+    );
+
+    for (const fala of [
+      "quais chamados estão em aberto no projeto?",
+      "quantas tarefas o Igor tem?",
+      "qual o status do chamado 55?",
+      "me mostra os chamados da Bracell",
+      "o que tem em andamento hoje?",
+      "lista as tarefas em revisão",
+    ]) {
+      expect(isReadOnlyQuestion(fala)).toBe(true);
+    }
+  });
+
+  it("nao confunde pedido com pergunta, mesmo terminando em interrogacao", async () => {
+    const { isReadOnlyQuestion } = await import(
+      "../../../apps/api/src/assistant/target-guard"
+    );
+
+    for (const fala of [
+      "pode fechar o chamado 55?",
+      "comenta na tarefa 29 que o Aldir não enviou",
+      "abre um chamado sobre o vazamento",
+      "anota aí que o fornecedor ligou",
+      "atualize o metax informando que avisamos o Aldir",
+      "report de hoje: falei com o Bruno",
+    ]) {
+      expect(isReadOnlyQuestion(fala)).toBe(false);
+    }
+  });
+});
