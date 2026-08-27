@@ -237,6 +237,33 @@ function isFailureOutcome(reply: string): boolean {
  * se parar num call nao confirmado, ou `null` se todos os calls foram
  * tratados (executados, pulados ou com erro reportado ao modelo).
  */
+/**
+ * Ids de tarefa que ja apareceram nesta conversa.
+ *
+ * O assistente anota em suas proprias respostas as tarefas em que agiu
+ * ("[sistema: ... id ...]"), e e isso que permite o acompanhamento natural:
+ * "cria o chamado" seguido de "coloca tambem que o operador escorregou" mexe
+ * na tarefa recem-criada sem a pessoa precisar dizer o numero.
+ */
+function collectTaskIdsFromHistory(
+  messages: { role: string; content: string }[],
+): string[] {
+  const ids: string[] = [];
+
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+    for (const match of message.content.matchAll(/\[sistema:[^\]]*\]/g)) {
+      for (const id of match[0].matchAll(/\b[a-z0-9]{20,32}\b/g)) {
+        ids.push(id[0]);
+      }
+    }
+  }
+
+  return ids;
+}
+
 async function processToolCalls({
   calls,
   skipIds,
@@ -247,11 +274,9 @@ async function processToolCalls({
   onProgress,
   requestId,
   toolErrors,
-  similarTasks,
-  ambiguousTargets,
   explicitCreateRequest,
   readOnlyQuestion,
-  declaredTaskIds,
+  allowedTaskIds,
   declaredNumbers,
   blockedNotices,
   executedCalls,
@@ -270,18 +295,14 @@ async function processToolCalls({
   toolErrors: { count: number };
   // Chamados parecidos ja calculados para este turno; usados para barrar a
   // criacao de um card que repete um deles. Vazio quando nao ha projeto.
-  similarTasks: DuplicateCandidate[];
-  // Chamados empatados como alvo do pedido, quando a pessoa nao disse o
-  // numero. Vazio quando o alvo esta claro.
-  ambiguousTargets: DuplicateCandidate[];
   // A fala pediu uma tarefa nova? Nesse caso, chamados existentes ficam fora
   // do alcance a menos que a pessoa tenha citado o numero de algum.
   explicitCreateRequest: boolean;
   // A fala e pergunta? Consulta nao escreve no board.
   readOnlyQuestion: boolean;
-  // Ids dos chamados que a pessoa citou pelo numero, ja resolvidos no projeto
-  // atual. Quando ha algum, mutacao fora dessa lista e recusada.
-  declaredTaskIds: Set<string>;
+  // Ids em que se pode mexer: os que a pessoa citou pelo numero e os que ja
+  // foram tocados nesta conversa. Fora disso, chamado nao e alterado.
+  allowedTaskIds: Set<string>;
   declaredNumbers: number[];
   // Projeto atual, usado para traduzir o numero do chamado para o id real.
   projectId?: string;
@@ -377,43 +398,28 @@ async function processToolCalls({
       continue;
     }
 
-    // Pedido de tarefa nova nao autoriza mexer nos chamados que ja existem.
-    // Sem esta trava o assistente criava o card certo e ainda saia comentando
-    // "novo chamado aberto sobre..." nos parecidos, poluindo o board.
-    if (
-      TASK_MUTATION_TOOLS.has(tool.name) &&
-      explicitCreateRequest &&
-      declaredTaskIds.size === 0
-    ) {
-      blockedNotices.push(
-        `${tool.name} nao foi aplicado: o pedido era de tarefa nova, nao de alteracao em chamado existente.`,
-      );
-      conversation.push({
-        role: "tool",
-        tool_call_id: call.id,
-        content:
-          "Not applied: the user asked for a NEW task, not for changes to existing tickets. " +
-          "Create the task. If another ticket looks related, mention it in your reply instead of writing on it. Never tell the user you wrote on a ticket when it was not applied.",
-      });
-      continue;
-    }
-
-    // Alvo declarado: a pessoa disse o numero do chamado. Mexer em outro e
-    // desobedecer — aconteceu em producao, com "e o chamado MET-35" virando
-    // comentario em dois chamados diferentes.
-    if (TASK_MUTATION_TOOLS.has(tool.name) && declaredTaskIds.size > 0) {
+    // Chamado so e tocado quando a pessoa diz qual: pelo numero, ou porque a
+    // tarefa foi criada nesta mesma conversa. Sem isso o assistente escolhia
+    // sozinho e escrevia em cards que nada tinham a ver com o pedido.
+    if (TASK_MUTATION_TOOLS.has(tool.name)) {
       const target = (args as { taskId?: unknown }).taskId;
-      if (typeof target === "string" && !declaredTaskIds.has(target)) {
-        const alvos = declaredNumbers.map((number) => `#${number}`).join(", ");
+      const permitido =
+        typeof target === "string" && allowedTaskIds.has(target);
+
+      if (!permitido) {
+        const alvos =
+          declaredNumbers.length > 0
+            ? ` Voce citou ${declaredNumbers.map((n) => `#${n}`).join(", ")}.`
+            : "";
         blockedNotices.push(
-          `${tool.name} nao foi aplicado: a acao apontava para outro chamado, e voce citou ${alvos}.`,
+          `${tool.name} nao foi aplicado: nao ficou claro em qual chamado mexer.${alvos}`,
         );
         conversation.push({
           role: "tool",
           tool_call_id: call.id,
           content:
-            `Not applied: the user named the ticket to act on (${alvos}), and this call targets a different one. ` +
-            "Retry the same call using the ticket the user named. Never tell the user you did something that was not applied.",
+            "Not applied: you may only change a ticket the user named by number in this conversation, or one created in this same conversation. " +
+            "Do not pick a ticket yourself. Ask the user for the ticket number, or create a new task if that is what was asked. Never tell the user you changed a ticket that was not changed.",
         });
         continue;
       }
@@ -421,27 +427,6 @@ async function processToolCalls({
 
     // Alvo ambiguo: mais de um chamado disputa o pedido e ninguem disse o
     // numero. Escolher um seria chute, e comentar no chamado errado ja
-    // aconteceu em producao.
-    // Enquanto ha duvida sobre o alvo, nada e aplicado — nem criar. Criar por
-    // conta propria durante a pergunta enche o board de card orfao enquanto a
-    // pessoa ainda nem respondeu.
-    if (
-      (TASK_MUTATION_TOOLS.has(tool.name) || tool.name === "create_task") &&
-      ambiguousTargets.length > 0
-    ) {
-      const list = ambiguousTargets
-        .map((task) => `#${task.number} "${task.title}"`)
-        .join(", ");
-      conversation.push({
-        role: "tool",
-        tool_call_id: call.id,
-        content:
-          `Not applied: more than one ticket matches what the user said (${list}). ` +
-          "Ask the user which one before acting — name them by number and title, and ask also whether they want a new task instead, since the subject may be none of them. Do not guess.",
-      });
-      continue;
-    }
-
     // Mudanca de coluna sem pedido: a fala so queria registrar uma
     // informacao, e mover o chamado altera o board para todo mundo.
     if (tool.name === "update_task_status" && !statusChangeRequested) {
@@ -456,30 +441,6 @@ async function processToolCalls({
           "Add the information with create_task_comment and leave the column as it is. Never tell the user the status changed when it did not.",
       });
       continue;
-    }
-
-    if (tool.name === "create_task" && similarTasks.length > 0) {
-      const draft = args as { title?: unknown; description?: unknown };
-      const title = typeof draft.title === "string" ? draft.title : "";
-      const description =
-        typeof draft.description === "string" ? draft.description : "";
-      const signature = `${title}\u0000${description}`.toLowerCase();
-      const duplicate = blockedDrafts.has(signature)
-        ? null
-        : findBlockingDuplicate({ title, description }, similarTasks);
-
-      if (duplicate) {
-        blockedDrafts.add(signature);
-        conversation.push({
-          role: "tool",
-          tool_call_id: call.id,
-          content:
-            `Task not created: #${duplicate.number} "${duplicate.title}" (${duplicate.status}) is already about this. ` +
-            "Record what the user said on it with create_task_comment, and use update_task_status only if the work actually finished. " +
-            "If this really is a different subject, call create_task again with the same arguments and it will be created.",
-        });
-        continue;
-      }
     }
 
     // Repetir a mesma acao com os mesmos argumentos nao muda nada e queima o
@@ -656,65 +617,41 @@ async function runAssistantTurn(
   // ao modelo como dado. Depender de ele lembrar de buscar antes de criar nao
   // se mostrou confiavel — ver o comentario em similar-tasks.ts. Numa retomada
   // (resumeFrom) esse bloco ja esta na conversa preservada.
-  const similarTasks = resumeFrom
-    ? []
-    : await fetchSimilarTasks(projectId, conversationText);
-  // Pedido explicito ("abra um chamado") desliga a barreira: quem falou sabe
-  // que quer um chamado novo, e barrar isso ja fez o assistente comentar no
-  // card errado em producao.
-  // Pedido de anotacao ("anota ai que...") tambem e pedido de registro novo,
-  // desde que a pessoa nao tenha citado o numero de um chamado — se citou, o
-  // alvo e aquele e nao ha nada a criar.
+  // A busca por chamados parecidos saiu. Ela oferecia cards ao modelo e ele
+  // escrevia neles: "quero um card novo replicando o 1910" virou comentario
+  // em dois chamados que apenas citavam assuntos proximos. Agora chamado so
+  // e tocado quando a pessoa diz qual — por numero, ou porque a tarefa foi
+  // criada nesta mesma conversa.
   const explicitCreateRequest =
     hasExplicitCreateRequest(conversationText) ||
     (isFreeNoteRequest(conversationText) &&
       extractDeclaredTaskNumbers(conversationText).length === 0);
-  // Pedido explicito de tarefa nova nao tem alvo ambiguo para resolver: quem
-  // pediu quer um card novo, e interromper com "em qual chamado?" transforma
-  // um pedido claro numa pergunta sem sentido.
-  const ambiguousTargets = explicitCreateRequest
-    ? []
-    : (findAmbiguousTargets(conversationText, similarTasks) ?? []);
   const statusChangeRequested = asksForStatusChange(conversationText);
-  const blockedNotices: string[] = [];
-  const executedCalls = new Set<string>();
-  // Vale apenas a ultima fala: o historico costuma ter pedidos anteriores que
-  // nao dizem nada sobre o que se quer agora.
   const readOnlyQuestion = isReadOnlyQuestion(
     messages.at(-1)?.content ?? conversationText,
   );
+  const blockedNotices: string[] = [];
+  const executedCalls = new Set<string>();
 
-  // Numeros citados viram ids do projeto atual. Numero que nao existe aqui
-  // (um chamado de outro sistema, por exemplo) simplesmente nao entra: nao ha
-  // o que exigir sobre ele.
   const declaredNumbers = extractDeclaredTaskNumbers(conversationText);
-  const declaredTaskIds = new Set<string>();
+  const allowedTaskIds = new Set<string>(collectTaskIdsFromHistory(messages));
   if (projectId) {
     for (const number of declaredNumbers) {
       let id: string | null = null;
       try {
         id = await resolveTaskIdByNumber(projectId, number);
       } catch (error) {
-        // Sem a resolucao a trava nao vale, mas o turno segue: recusar tudo
-        // por causa de uma consulta que falhou seria pior.
         console.warn(
           `assistant declared-target lookup failed (handled) projectId=${projectId} number=${number} reason="${error instanceof Error ? error.message : String(error)}"`,
         );
       }
       if (id) {
-        declaredTaskIds.add(id);
-        // O modelo tambem pode passar o proprio numero como taskId; a
-        // traducao acontece antes, mas aceitar os dois evita recusar uma
-        // chamada que ja estava certa.
-        declaredTaskIds.add(String(number));
+        allowedTaskIds.add(id);
+        allowedTaskIds.add(String(number));
       }
     }
   }
-  const similarBlock = formatSimilarTasksBlock(
-    similarTasks,
-    explicitCreateRequest,
-    conversationText,
-  );
+
   // Uma assinatura por rascunho barrado, valida so dentro deste turno.
   const blockedDrafts = new Set<string>();
 
@@ -722,9 +659,6 @@ async function runAssistantTurn(
     ? [...resumeFrom]
     : [
         { role: "system", content: buildSystemPrompt(workspaceId, projectId) },
-        ...(similarBlock
-          ? [{ role: "system" as const, content: similarBlock }]
-          : []),
         ...messages.map((message) => ({
           role: message.role,
           content: message.content,
@@ -766,11 +700,9 @@ async function runAssistantTurn(
         onProgress,
         requestId,
         toolErrors,
-        similarTasks: explicitCreateRequest ? [] : similarTasks,
-        ambiguousTargets,
         explicitCreateRequest,
         readOnlyQuestion,
-        declaredTaskIds,
+        allowedTaskIds,
         declaredNumbers,
         blockedNotices,
         executedCalls,
@@ -852,11 +784,9 @@ async function runAssistantTurn(
       onProgress,
       requestId,
       toolErrors,
-      similarTasks: explicitCreateRequest ? [] : similarTasks,
-      ambiguousTargets,
       explicitCreateRequest,
       readOnlyQuestion,
-      declaredTaskIds,
+      allowedTaskIds,
       declaredNumbers,
       blockedNotices,
       executedCalls,

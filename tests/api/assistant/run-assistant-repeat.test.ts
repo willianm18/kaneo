@@ -14,6 +14,13 @@ vi.mock("../../../apps/api/src/assistant/similar-tasks", async () => {
   return { ...actual, findSimilarTasks: async () => [] };
 });
 
+vi.mock("../../../apps/api/src/assistant/task-reference", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../apps/api/src/assistant/task-reference")
+  >("../../../apps/api/src/assistant/task-reference");
+  return { ...actual, resolveTaskIdByNumber: async () => "t35" };
+});
+
 vi.mock("../../../apps/api/src/assistant/collect-tools", () => ({
   collectTools: () => [
     {

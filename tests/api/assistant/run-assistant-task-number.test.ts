@@ -76,7 +76,7 @@ describe("runAssistant: numero do chamado no lugar do id", () => {
     mockComment.mockReset();
     mockResolve.mockReset();
     mockComment.mockResolvedValue({ content: [{ type: "text", text: "{}" }] });
-    mockResolve.mockResolvedValue("task-real-id");
+    mockResolve.mockResolvedValue("nqvxy76c7ifcx1za1h9jpat1");
     mockCall.mockResolvedValueOnce(commentCall("29")).mockResolvedValueOnce({
       role: "assistant",
       content: "ok",
@@ -88,7 +88,7 @@ describe("runAssistant: numero do chamado no lugar do id", () => {
 
     expect(mockResolve).toHaveBeenCalledWith("proj-1", 29);
     expect(mockComment).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: "task-real-id" }),
+      expect.objectContaining({ taskId: "nqvxy76c7ifcx1za1h9jpat1" }),
     );
   });
 
@@ -98,27 +98,21 @@ describe("runAssistant: numero do chamado no lugar do id", () => {
       .mockResolvedValueOnce(commentCall("nqvxy76c7ifcx1za1h9jpat1"))
       .mockResolvedValueOnce({ role: "assistant", content: "ok" });
 
-    // Sem numero citado na fala: aqui se mede so a traducao, sem a trava de
-    // alvo declarado entrar na conta.
-    await runAssistant({
-      ...base,
-      messages: [{ role: "user", content: "registra que o Aldir nao enviou" }],
-    });
+    await runAssistant(base);
 
-    expect(mockResolve).not.toHaveBeenCalled();
+    // O id chega pronto: a ferramenta recebe exatamente o que o modelo passou.
     expect(mockComment).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: "nqvxy76c7ifcx1za1h9jpat1" }),
     );
   });
 
-  it("segue com o valor original quando o numero nao existe no projeto", async () => {
+  it("nao mexe em chamado nenhum quando o numero citado nao existe no projeto", async () => {
     mockResolve.mockResolvedValue(null);
 
-    await runAssistant(base);
+    const result = await runAssistant(base);
 
-    expect(mockComment).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: "29" }),
-    );
+    expect(mockComment).not.toHaveBeenCalled();
+    expect(result.reply.toLowerCase()).toContain("nao foi aplicad");
   });
 });
 
@@ -142,7 +136,7 @@ describe("limite de passos", () => {
               name: "create_task_comment",
               arguments: JSON.stringify({
                 taskId: "nqvxy76c7ifcx1za1h9jpat1",
-                content: `item ${i}`,
+                content: `item ${i} do relato`,
               }),
             },
           },
@@ -151,8 +145,20 @@ describe("limite de passos", () => {
     }
     mockCall.mockResolvedValue({ role: "assistant", content: "pronto" });
 
-    const result = await runAssistant(base);
+    const result = await runAssistant({
+      ...base,
+      messages: [
+        {
+          role: "user",
+          content:
+            "no chamado 29 registra os quatro pontos que combinamos, um a um",
+        },
+      ],
+    });
 
-    expect(result.reply).toBe("pronto");
+    // A resposta pode trazer o aviso do que ficou de fora; o que importa aqui
+    // e ter chegado ao fim em vez de esbarrar no limite de passos.
+    expect(result.reply).toContain("pronto");
+    expect(result.reply).not.toContain("limite de passos");
   });
 });
